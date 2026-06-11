@@ -6,11 +6,16 @@
 <style>
   html,body{margin:0;padding:0;overflow:hidden;background:#000;font-family:monospace}
   #cross{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;font-size:20px;pointer-events:none;text-shadow:0 0 2px #000}
-  #hotbar{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
-  .slot{width:44px;height:44px;border:2px solid #888;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-size:9px}
-  .slot.sel{border-color:#fff;background:rgba(255,255,255,.18)}
-  .sw{width:22px;height:22px;margin-bottom:2px;border:1px solid #0006}
-  #hearts{position:fixed;bottom:62px;left:50%;transform:translateX(-50%);color:#f33;font-size:18px;text-shadow:0 0 2px #000}
+  /* ---- Minecraft-style HUD: big hotbar + hearts ---- */
+  #hud{position:fixed;bottom:6px;left:50%;transform:translateX(-50%)}
+  #itemname{text-align:center;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000;opacity:0;transition:opacity .6s;height:22px}
+  #hearts{color:#f22;font-size:22px;text-shadow:2px 2px 0 #400;margin:0 0 3px 2px;letter-spacing:1px}
+  #hotbar{display:flex;gap:4px;padding:4px;background:#8b8b8b;border:4px solid #1b1b1b;box-shadow:inset 0 0 0 2px #6f6f6f}
+  .slot{position:relative;width:54px;height:54px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;
+    background:rgba(22,22,22,.6);border:3px solid;border-color:#373737 #fff #fff #373737}
+  .slot.sel{box-shadow:0 0 0 4px #efefef,0 0 0 5px #000;transform:scale(1.09);z-index:2}
+  .sw{width:36px;height:36px;border:1px solid #0009;image-rendering:pixelated}
+  .cnt{position:absolute;bottom:-1px;right:3px;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000}
   #info{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,.7);padding:20px 30px;border-radius:8px;text-align:center;line-height:1.7;display:none}
   #flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .3s}
   #clock{position:fixed;top:8px;right:12px;color:#fff;text-shadow:0 0 3px #000}
@@ -29,12 +34,16 @@
 </head>
 <body>
 <div id="cross">+</div>
-<div id="hearts"></div>
-<div id="hotbar"></div>
+<div id="hud">
+  <div id="itemname"></div>
+  <div id="hearts"></div>
+  <div id="hotbar"></div>
+</div>
 <div id="clock"></div>
 <div id="flash"></div>
 <div id="info"><b>MINECLONE</b><br><br>Click to play<br>WASD move &middot; Space jump / swim up<br>
-Left click: break / attack &middot; Right click: place<br>
+Hold left click: mine blocks &middot; Click: attack<br>
+Right click: place (uses inventory!) &middot; Mine to collect more<br>
 1-8 / mouse wheel: select block &middot; Middle click: pick block<br><br>
 Watch out for zombies at night!</div>
 <div id="menu">
@@ -414,7 +423,7 @@ function updateChunks(){
     if(c.meshed&&Math.max(Math.abs(c.cx-pcx),Math.abs(c.cz-pcz))>RENDER+1)unmesh(c);}
 
 // ================= SKY / DAY-NIGHT =================
-const amb=new THREE.AmbientLight(0xcfdcff,.7);scene.add(amb);
+const amb=new THREE.AmbientLight(0xe9eef5,.7);scene.add(amb); // near-neutral fill: strong blue here made white mobs look glossy
 const sun=new THREE.DirectionalLight(0xfff2cc,1);scene.add(sun);scene.add(sun.target);
 const sunMesh=new THREE.Mesh(new THREE.PlaneGeometry(18,18),
   new THREE.MeshBasicMaterial({color:0xffdd55,fog:false}));scene.add(sunMesh);
@@ -438,10 +447,11 @@ for(let i=0;i<14;i++){
    c.position.set(Math.random()*256-128,55+Math.random()*5,Math.random()*256-128);
   clouds.add(c);}
 scene.add(clouds);
-const DAY=240;let dayFrac=.3,daylight=1;
+const DAY_LEN=180,NIGHT_LEN=162;   // day half lasts 180s, night half 10% shorter
+let dayFrac=.3,daylight=1;
 const dayC=new THREE.Color(0x87ceeb),nightC=new THREE.Color(0x070b1f),duskC=new THREE.Color(0xe2823f);
 function updateSky(dt){
-  dayFrac=(dayFrac+dt/DAY)%1;
+  dayFrac=(dayFrac+dt/(2*(dayFrac<.5?DAY_LEN:NIGHT_LEN)))%1;  // sun is up for frac 0..0.5
   const ang=dayFrac*Math.PI*2,elev=Math.sin(ang);
   daylight=THREE.MathUtils.clamp((elev+.12)/.3,0,1);
   sun.intensity=.15+.85*daylight;amb.intensity=.25+.55*daylight;
@@ -461,15 +471,46 @@ function updateSky(dt){
   document.getElementById('clock').textContent=
     (daylight>.5?'☀ ':'☾ ')+String(hh).padStart(2,'0')+':00';}
 
-const SOUND_URLS={place:'',dig:'',hit:'',hurt:'',splash:'',swim:'',
-                  pig:'',sheep:'',villager:'',zombie:''};
+// real Minecraft sounds; keys not listed here fall back to the synth SFX above
+const SND_DIR='Minecraft Sound Pack 1.17 - Sound Effects/';
+const seq=(dir,base,n)=>Array.from({length:n},(_,i)=>dir+base+(i+1)+'.ogg');
+const SOUND_URLS={
+  hit:seq('entity/player/attack/','strong',6), // bare-hand punch (vanilla entity.player.attack.strong)
+  hurt:seq('damage/','hit',3),                 // player taking damage (vanilla entity.player.hurt)
+  pig:seq('mob/pig/','say',3),              // oinks double as ambient + hurt voice
+  pigDeath:['mob/pig/death.ogg'],
+  sheep:seq('mob/sheep/','say',3),          // baas double as ambient + hurt + death voice
+  villager:seq('mob/villager/','idle',3),
+  villagerHit:seq('mob/villager/','hit',4),
+  villagerDeath:['mob/villager/death.ogg'],
+  zombie:seq('mob/zombie/','say',3),
+  zombieHurt:seq('mob/zombie/','hurt',2),
+  zombieDeath:['mob/zombie/death.ogg'],
+  zombieStep:seq('mob/zombie/','step',5),
+  splash:['liquid/splash.ogg','liquid/splash2.ogg'],
+  swim:seq('liquid/','swim',18),
+  stepGrass:seq('step/','grass',6),
+  stepGravel:seq('step/','gravel',4),
+  stepSand:seq('step/','sand',5),
+  stepStone:seq('step/','stone',6),
+  stepWood:seq('step/','wood',6),
+  digGrass:seq('dig/','grass',4),     // block break sounds (vanilla dig/*)
+  digGravel:seq('dig/','gravel',4),
+  digSand:seq('dig/','sand',4),
+  digStone:seq('dig/','stone',4),
+  digWood:seq('dig/','wood',4),
+  glassBreak:seq('random/','glass',3),
+  pop:['random/pop.ogg']};            // item pickup blip
 const loadedSnd={};
-for(const k in SOUND_URLS)if(SOUND_URLS[k]){
-  const a=new Audio(SOUND_URLS[k]);a.preload='auto';loadedSnd[k]=a;}
-function play(k,vol){const a=loadedSnd[k];
-  if(!a)return false;
-  const c=a.cloneNode();c.volume=Math.min(1,vol);c.play().catch(()=>{});return true;}
-const S=(k,vol,fb)=>{if(!play(k,vol))fb();};
+for(const k in SOUND_URLS)
+  loadedSnd[k]=SOUND_URLS[k].map(f=>{const a=new Audio(SND_DIR+f);a.preload='auto';return a;});
+function play(k,vol,rate){const arr=loadedSnd[k];
+  if(!arr||!arr.length)return false;
+  const a=arr[(Math.random()*arr.length)|0];
+  const c=a.cloneNode();c.volume=Math.min(1,Math.max(0,vol));
+  if(rate){c.playbackRate=rate;c.preservesPitch=false;} // real pitch shift, like MC's random pitch
+  c.play().catch(()=>{});return true;}
+const S=(k,vol,fb)=>{if(!play(k,vol))fb&&fb();};
 function mobSound(type,pos){
   const d=pos.distanceTo(player.pos);if(d>22)return;
   const vol=.25/(1+d*.18);
@@ -479,7 +520,7 @@ function mobSound(type,pos){
 const keys={};
 addEventListener('keydown',e=>{keys[e.code]=true;
   if(e.code.startsWith('Digit')){const n=+e.code[5]-1;
-    if(n>=0&&n<hotbar.length){sel=n;drawHotbar();}}});
+    if(n>=0&&n<hotbar.length){sel=n;drawHotbar();showItemName();}}});
 addEventListener('keyup',e=>keys[e.code]=false);
 let sx=8,sz=8;
 outer:for(let r=0;r<64;r++)                       // spiral out until dry land
@@ -488,7 +529,7 @@ outer:for(let r=0;r<64;r++)                       // spiral out until dry land
     const x=8+dx,z=8+dz,g=groundH(x,z);
     if(g>WATER&&gB(x,g,z)!==WATERB){sx=x;sz=z;break outer;}}
 const player={pos:new THREE.Vector3(sx+.5,0,sz+.5),vel:new THREE.Vector3(),
-  yaw:0,pitch:0,onGround:false,hp:20,wasInWater:false,swimT:0};
+  yaw:0,pitch:0,onGround:false,hp:20,wasInWater:false,swimT:0,stepT:0};
 player.pos.y=groundH(sx,sz)+2;
 const spawn=player.pos.clone();
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement){
@@ -513,16 +554,13 @@ renderer.domElement.addEventListener('mousedown',e=>{
   audio().resume();
   if(!document.pointerLockElement){renderer.domElement.requestPointerLock();return;}
   if(e.button===0){
-    if(attack())return;
-    const r=raycast();
-    if(r&&r.hit){const[x,y,z]=r.hit;
-      if(isDoor(gB(x,y,z)))breakDoor(x,y,z);else setBlock(x,y,z,AIR);
-      flowWater(x,y,z);flush();S('dig',.6,SFX.dig);}
+    leftDown=true;            // mining happens per-frame while held (see updateMining)
+    attack();
   }else if(e.button===1){e.preventDefault();
     const r=raycast();
     if(r&&r.hit){const b=gB(...r.hit);
       const i=hotbar.findIndex(it=>it.b===b);
-      if(i>=0){sel=i;drawHotbar();}}
+      if(i>=0){sel=i;drawHotbar();showItemName();}}
   }else if(e.button===2){
     const r=raycast();if(!r)return;
     if(r.hit&&isDoor(gB(...r.hit))){toggleDoor(...r.hit);return;}
@@ -531,9 +569,12 @@ renderer.domElement.addEventListener('mousedown',e=>{
     const b=gB(x,y,z);if(b!==AIR&&b!==WATERB)return;
     const p=player.pos;
     if(x+1>p.x-.3&&x<p.x+.3&&z+1>p.z-.3&&z<p.z+.3&&y+1>p.y&&y<p.y+1.8)return;
+    if(hotbar[sel].count<=0)return;          // out of this block: mine to get more
+    hotbar[sel].count--;drawHotbar();
     setBlock(x,y,z,hotbar[sel].b);flush();S('place',.6,SFX.place);}});
+addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;});
 addEventListener('wheel',e=>{if(!document.pointerLockElement)return;
-  sel=(sel+(e.deltaY>0?1:-1)+hotbar.length)%hotbar.length;drawHotbar();});
+  sel=(sel+(e.deltaY>0?1:-1)+hotbar.length)%hotbar.length;drawHotbar();showItemName();});
 function collidesP(){
   const p=player.pos,r=.3;
   for(const dx of[-r,r])for(const dz of[-r,r])for(const dy of[.05,.9,1.75])
@@ -575,8 +616,15 @@ function updatePlayer(dt){
     player.pos.y-=player.vel.y*dt;player.vel.y=0;}
   if(inWater&&!player.wasInWater)S('splash',.5,()=>SFX.splash(.4)); // entry splash
   if(inWater&&sp>0){player.swimT-=dt;
-    if(player.swimT<=0){player.swimT=.45;S('swim',.3,SFX.swim);}}
+    if(player.swimT<=0){player.swimT=.45;S('swim',.35,SFX.swim);}}
   player.wasInWater=inWater;
+  if(player.onGround&&!inWater&&sp>0){               // footsteps matched to the block underfoot
+    player.stepT-=dt;
+    if(player.stepT<=0){player.stepT=sprint?.31:.43;
+      const gb=gB(fx,Math.floor(player.pos.y-.1),fz);
+      play(gb===SAND?'stepSand':(gb===STONE||gb===COBBLE)?'stepStone'
+        :(gb===PLANK||gb===LOG)?'stepWood':'stepGrass',.35);}}
+  else player.stepT=0;
   if(player.pos.y<-12){player.pos.copy(spawn);player.vel.set(0,0,0);}
   if(daylight>.5)player.hp=Math.min(20,player.hp+dt*.4);
   camera.position.copy(player.pos).add(new THREE.Vector3(0,1.62,0));
@@ -605,8 +653,10 @@ function part(w,h,d,c,x,y,z,pivotTop){
   const m=new THREE.Mesh(g,lam(c));m.position.set(x,y,z);return m;}
 function humanoid(skin,shirt,pants,opts={}){
   const g=new THREE.Group(),limbs=[];
-  g.add(part(.5,.5,.5,skin,0,1.75,0));
-  if(opts.nose)g.add(part(.12,.25,.12,opts.nose,0,1.68,.31));
+  const head=new THREE.Group();head.position.set(0,1.5,0); // pivot at the neck
+  head.add(part(.5,.5,.5,skin,0,.25,0));
+  if(opts.nose)head.add(part(.12,.25,.12,opts.nose,0,.18,.31));
+  g.add(head);
   g.add(part(.5,.75,.3,shirt,0,1.125,0));
   const la=part(.2,.7,.2,opts.arm||skin,-.36,1.45,0,true),
         ra=part(.2,.7,.2,opts.arm||skin,.36,1.45,0,true),
@@ -615,70 +665,114 @@ function humanoid(skin,shirt,pants,opts={}){
   if(opts.zombie){la.rotation.x=ra.rotation.x=-Math.PI/2;}
   g.add(la,ra,ll,rl);
   limbs.push([ll,1],[rl,-1]);if(!opts.zombie)limbs.push([la,-1],[ra,1]);
-  return{g,limbs};}
+  return{g,limbs,head};}
 function quadruped(bodyC,headC,legH){
   const g=new THREE.Group(),limbs=[];
   g.add(part(.7,.55,1.0,bodyC,0,legH+.275,0));
-  g.add(part(.5,.45,.45,headC,0,legH+.5,.62));
+  const head=new THREE.Group();head.position.set(0,legH+.5,.42); // pivot at the neck
+  head.add(part(.5,.45,.45,headC,0,0,.2));
+  g.add(head);
   let i=0;
   for(const[lx,lz]of[[-.22,.32],[.22,.32],[-.22,-.32],[.22,-.32]]){
     const l=part(.2,legH,.2,headC,lx,legH,lz,true);
-    g.add(l);limbs.push([l,i%2?1:-1]);i++;}
-  return{g,limbs};}
+    g.add(l);limbs.push([l,(i===0||i===3)?1:-1]);i++;} // diagonal pairs swing together (trot)
+  return{g,limbs,head};}
 const builders={
-  pig:()=>{const q=quadruped(0xeda3ab,0xe8949d,.35),h=.35;
-    q.g.add(part(.22,.14,.08,0xd9858f,0,h+.44,.86));      // snout
-    q.g.add(part(.05,.06,.02,0x6e3a42,-.05,h+.44,.905));  // nostrils
-    q.g.add(part(.05,.06,.02,0x6e3a42,.05,h+.44,.905));
-    q.g.add(part(.07,.1,.02,0xffffff,-.15,h+.58,.85));    // eyes
-    q.g.add(part(.07,.1,.02,0xffffff,.15,h+.58,.85));
-    q.g.add(part(.04,.06,.02,0x1a1a1a,-.13,h+.57,.86));   // pupils
-    q.g.add(part(.04,.06,.02,0x1a1a1a,.13,h+.57,.86));
+  pig:()=>{const q=quadruped(0xeda3ab,0xe8949d,.35);
+    q.head.add(part(.22,.14,.08,0xd9858f,0,-.06,.44));      // snout
+    q.head.add(part(.05,.06,.02,0x6e3a42,-.05,-.06,.485));  // nostrils
+    q.head.add(part(.05,.06,.02,0x6e3a42,.05,-.06,.485));
+    q.head.add(part(.07,.1,.02,0xffffff,-.15,.08,.43));     // eyes
+    q.head.add(part(.07,.1,.02,0xffffff,.15,.08,.43));
+    q.head.add(part(.04,.06,.02,0x1a1a1a,-.13,.07,.44));    // pupils
+    q.head.add(part(.04,.06,.02,0x1a1a1a,.13,.07,.44));
     return q;},
-  sheep:()=>{const q=quadruped(0xe8e8e8,0xf2e3cf,.45),h=.45;
-    q.g.add(part(.56,.35,.45,0xffffff,0,h+.62,.45));      // wool head tuft
-    q.g.add(part(.07,.1,.02,0x1a1a1a,-.13,h+.55,.85));    // eyes
-    q.g.add(part(.07,.1,.02,0x1a1a1a,.13,h+.55,.85));
-    q.g.add(part(.1,.06,.02,0xd8a0a8,0,h+.4,.85));        // nose
-    q.g.add(part(.78,.6,1.06,0xf5f5f5,0,h+.28,0));        // fluffy wool body
+  sheep:()=>{const q=quadruped(0xd9d9d9,0xf2e3cf,.45);      // wool kept off pure white so daylight doesn't blow it out
+    q.head.add(part(.56,.35,.45,0xe6e6e6,0,.12,.03));       // wool head tuft
+    q.head.add(part(.07,.1,.02,0x1a1a1a,-.13,.05,.43));     // eyes
+    q.head.add(part(.07,.1,.02,0x1a1a1a,.13,.05,.43));
+    q.head.add(part(.1,.06,.02,0xd8a0a8,0,-.1,.43));        // nose
+    q.g.add(part(.78,.6,1.06,0xe2e2e2,0,.73,0));            // fluffy wool body
     return q;},
   villager:()=>{const m=humanoid(0xc9a06c,0x7a5b3a,0x6b4f33,{nose:0xb9855e,arm:0x7a5b3a});
-    m.g.add(part(.08,.08,.02,0x3a7d2c,-.12,1.8,.26));     // green eyes
-    m.g.add(part(.08,.08,.02,0x3a7d2c,.12,1.8,.26));
-    m.g.add(part(.04,.08,.02,0x111111,-.12,1.8,.265));    // pupils
-    m.g.add(part(.04,.08,.02,0x111111,.12,1.8,.265));
-    m.g.add(part(.32,.05,.02,0x5a3c1e,0,1.88,.26));       // unibrow
-    m.g.add(part(.54,.14,.54,0x4a3018,0,1.97,0));         // hair cap
-    m.g.add(part(.16,.05,.02,0x8a6a4a,0,1.6,.26));        // mouth
+    m.head.add(part(.08,.08,.02,0x3a7d2c,-.12,.3,.26));     // green eyes
+    m.head.add(part(.08,.08,.02,0x3a7d2c,.12,.3,.26));
+    m.head.add(part(.04,.08,.02,0x111111,-.12,.3,.265));    // pupils
+    m.head.add(part(.04,.08,.02,0x111111,.12,.3,.265));
+    m.head.add(part(.32,.05,.02,0x5a3c1e,0,.38,.26));       // unibrow
+    m.head.add(part(.54,.14,.54,0x4a3018,0,.47,0));         // hair cap
+    m.head.add(part(.16,.05,.02,0x8a6a4a,0,.1,.26));        // mouth
     return m;},
   zombie:()=>{const m=humanoid(0x4e9141,0x1f8a8a,0x4a4a8c,{zombie:true});
-    m.g.add(part(.09,.09,.02,0x0a0a0a,-.12,1.8,.26));     // hollow black eyes
-    m.g.add(part(.09,.09,.02,0x0a0a0a,.12,1.8,.26));
-    m.g.add(part(.18,.06,.02,0x16341a,0,1.62,.26));       // mouth
-    m.g.add(part(.5,.1,.5,0x3d7434,0,1.95,0));            // darker scalp
-    m.g.add(part(.22,.1,.32,0x16664f,0,.78,0,true));      // torn shirt hem
-    return m;}};    
+    m.head.add(part(.09,.09,.02,0x0a0a0a,-.12,.3,.26));     // hollow black eyes
+    m.head.add(part(.09,.09,.02,0x0a0a0a,.12,.3,.26));
+    m.head.add(part(.18,.06,.02,0x16341a,0,.12,.26));       // mouth
+    m.head.add(part(.5,.1,.5,0x3d7434,0,.45,0));            // darker scalp
+    m.g.add(part(.22,.1,.32,0x16664f,0,.78,0,true));        // torn shirt hem
+    return m;}};
+const HURT_RED=new THREE.Color(1,.15,.15);
 const mobs=[];
 class Mob{
   constructor(type,x,y,z,home){
     this.type=type;this.pos=new THREE.Vector3(x,y,z);
     this.vy=0;this.dir=Math.random()*Math.PI*2;this.moving=true;
     this.timer=0;this.phase=0;this.cool=0;this.grounded=false;this.home=home;
-    this.hp=type==='zombie'?10:6;this.dead=false;
-    const m=builders[type]();this.group=m.g;this.limbs=m.limbs;
+    this.hp=20;this.dead=false;               // 5 punches at 4 dmg each
+    this.bodyYaw=this.dir;this.headYaw=0;this.headPitch=0;
+    this.panicT=0;this.repickT=0;this.hurtT=0;this.swing=0;this.dying=-1;
+    this.kbx=0;this.kbz=0;                    // knockback velocity from being hit
+    const m=builders[type]();this.group=m.g;this.limbs=m.limbs;this.head=m.head;
+    this.group.traverse(o=>{if(o.material)o.userData.base=o.material.color.clone();});
     scene.add(this.group);}
   remove(){scene.remove(this.group);
     this.group.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});}
-  hit(d){this.hp-=d;S('hit',.5,SFX.hit);
+  tint(on){this.group.traverse(o=>{if(o.material&&o.userData.base){
+    o.material.color.copy(o.userData.base);
+    if(on)o.material.color.lerp(HURT_RED,.65);   // blend toward red so even white wool shows it
+    o.material.emissive.setRGB(on?.25:0,0,0);}});} // touch of glow so it reads at night too
+  hit(d){this.hp-=d;
+    S('hit',.5,SFX.hit);                     // punch impact, always
+    const dying=this.hp<=0;                  // one voice per hit: hurt OR death, never both
+    if(this.type==='villager')play(dying?'villagerDeath':'villagerHit',.6);
+    else if(this.type==='zombie')play(dying?'zombieDeath':'zombieHurt',.6);
+    else if(this.type==='pig')play(dying?'pigDeath':'pig',.6);
+    else if(this.type==='sheep')play('sheep',.6); // pack has no sheep death; single baa
+    // Minecraft knockback: velocity burst away from the attacker + a small hop,
+    // sliding back ~1 block while still facing the player (no teleport)
     const away=Math.atan2(this.pos.x-player.pos.x,this.pos.z-player.pos.z);
-    this.dir=away;this.moving=true;this.timer=1.2;
-    this.pos.x+=Math.sin(away)*.5;this.pos.z+=Math.cos(away)*.5;this.vy=5;
-    this.group.traverse(o=>{if(o.material)o.material.emissive=new THREE.Color(0x990000);});
-    setTimeout(()=>this.group.traverse(o=>{
-      if(o.material)o.material.emissive=new THREE.Color(0x000000);}),150);
-    if(this.hp<=0)this.dead=true;}
+    this.kbx=Math.sin(away)*5.5;this.kbz=Math.cos(away)*5.5;
+    this.vy=Math.max(this.vy,4.2);           // little jump, ~0.4 blocks like MC
+    this.hurtT=.5;this.tint(true);           // Minecraft hurt flash: solid red for half a second
+    if(dying){this.dying=0;this.hurtT=99;}   // stay red while keeling over
+    else if(this.type!=='zombie'){           // animals+villagers bolt; zombies keep coming at you
+      this.dir=away;this.moving=true;
+      this.panicT=4+Math.random()*2;}}
   update(dt){
     this.timer-=dt;this.cool-=dt;
+    if(this.kbx||this.kbz){                  // knockback slide: decays fast, stops at walls
+      const fy=Math.floor(this.pos.y+.1);
+      const nx=this.pos.x+this.kbx*dt,nz=this.pos.z+this.kbz*dt;
+      if(!solidAt(Math.floor(nx),fy,Math.floor(this.pos.z))&&
+         !solidAt(Math.floor(nx),fy+1,Math.floor(this.pos.z)))this.pos.x=nx;else this.kbx=0;
+      if(!solidAt(Math.floor(this.pos.x),fy,Math.floor(nz))&&
+         !solidAt(Math.floor(this.pos.x),fy+1,Math.floor(nz)))this.pos.z=nz;else this.kbz=0;
+      const f=Math.max(0,1-dt*6);this.kbx*=f;this.kbz*=f;
+      if(Math.abs(this.kbx)+Math.abs(this.kbz)<.05)this.kbx=this.kbz=0;}
+    if(this.hurtT>0&&(this.hurtT-=dt)<=0)this.tint(false);
+    if(this.dying>=0){                       // Minecraft death: keel over sideways, then poof
+      this.dying+=dt;
+      this.group.rotation.z=Math.min(1,this.dying*2.8)*(Math.PI/2);
+      this.vy-=22*dt;this.pos.y+=this.vy*dt;
+      const dby=Math.floor(this.pos.y);
+      if(this.vy<=0&&solidAt(Math.floor(this.pos.x),dby,Math.floor(this.pos.z))){
+        this.pos.y=dby+1;this.vy=0;}
+      if(this.dying>1){this.dead=true;
+        for(let i=0;i<12;i++)spawnFlame(     // white death poof
+          this.pos.x+(Math.random()-.5)*.8,
+          this.pos.y+.2+Math.random()*1.2,
+          this.pos.z+(Math.random()-.5)*.8,null,0xeeeeee);}
+      this.group.position.copy(this.pos);
+      return;}
         if(this.burning){
       this.burnT-=dt;
       // flickering orange glow on the body
@@ -692,20 +786,28 @@ class Mob{
         this.pos.z+(Math.random()-.5)*.6); 
       if(Math.random()<dt*4)noiseSnd({dur:.15,vol:.08,f0:2500,f1:600}); // crackle
       if(this.burnT<=0){this.dead=true;
+        play('zombieDeath',.4/(1+this.pos.distanceTo(player.pos)*.15));
         for(let i=0;i<14;i++)spawnFlame(   // final burst
           this.pos.x+(Math.random()-.5)*.8,
           this.pos.y+Math.random()*1.8,
           this.pos.z+(Math.random()-.5)*.8);}}
     if(Math.random()<dt*.07)mobSound(this.type,this.pos);
-    if(this.timer<=0){this.timer=2+Math.random()*4;
+    const pd=this.pos.distanceTo(player.pos);
+    if(this.panicT>0){                       // just hit: bolt away from the player
+      this.panicT-=dt;this.moving=true;
+      if((this.repickT-=dt)<=0){this.repickT=.4;  // re-aim often so the flee path weaves
+        this.dir=Math.atan2(this.pos.x-player.pos.x,this.pos.z-player.pos.z)+(Math.random()-.5)*1.1;}}
+    else if(this.timer<=0){this.timer=2+Math.random()*4;
       this.dir=Math.random()*Math.PI*2;this.moving=Math.random()<.75;}
-    let sp=this.type==='zombie'?1.6:1.3;
+    if(this.type!=='zombie'&&this.panicT<=0&&pd<2){ // personal space: amble off when crowded
+      this.dir=Math.atan2(this.pos.x-player.pos.x,this.pos.z-player.pos.z)+(Math.random()-.5)*.6;
+      this.moving=true;}
+    let sp=this.type==='zombie'?1.6:(this.panicT>0?2.7:1.3);
     if(this.type==='zombie'){
-      const d=this.pos.distanceTo(player.pos);
-      if(d<18){this.dir=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z);
+      if(pd<18){this.dir=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z);
         this.moving=true;sp=2.5;
-        if(d<1.5&&this.cool<=0){this.cool=1.1;damagePlayer(2);}}}
-    if(this.type==='villager'&&this.home){
+        if(pd<1.5&&this.cool<=0){this.cool=1.1;damagePlayer(2);}}}
+    if(this.type==='villager'&&this.home&&this.panicT<=0){
       const dx=this.pos.x-this.home.x,dz=this.pos.z-this.home.z;
       if(dx*dx+dz*dz>100){this.dir=Math.atan2(-dx,-dz);this.moving=true;}}
     if(this.moving){
@@ -715,7 +817,12 @@ class Mob{
       else if(solidAt(bx,fy,bz)&&!solidAt(bx,fy+1,bz)&&!solidAt(bx,fy+2,bz)){
         if(this.grounded)this.vy=6.5;}
       else this.dir+=Math.PI*(.5+Math.random());
-      this.phase+=dt*8;}
+      this.phase+=dt*(5+sp*4);               // step cadence follows actual speed
+      if(this.type==='zombie'&&this.grounded){       // shamble footsteps
+        this.stepT=(this.stepT||0)-dt;
+        if(this.stepT<=0){this.stepT=.45;
+          const d=this.pos.distanceTo(player.pos);
+          if(d<16)play('zombieStep',.5/(1+d*.3));}}}
     const feet=gB(Math.floor(this.pos.x),Math.floor(this.pos.y+.2),Math.floor(this.pos.z));
     if(feet===WATERB)this.vy=Math.min(this.vy+30*dt,1.5);
     else this.vy-=22*dt;
@@ -725,17 +832,104 @@ class Mob{
       this.pos.y=by+1;this.vy=0;this.grounded=true;}
     if(this.vy>0&&solidAt(Math.floor(this.pos.x),Math.floor(this.pos.y+1.9),Math.floor(this.pos.z)))
       this.vy=0;
-    const sw=this.moving?Math.sin(this.phase)*.6:0;
+    // gait: stride length scales with speed and eases in/out instead of snapping
+    this.swing+=((this.moving?Math.min(1,sp/2.2):0)-this.swing)*Math.min(1,dt*8);
+    const sw=Math.sin(this.phase)*.9*this.swing;
     for(const[l,s2]of this.limbs)
       l.rotation.x=(this.type==='zombie'&&l.position.y>1)?-Math.PI/2:sw*s2;
-    this.group.position.copy(this.pos);this.group.rotation.y=this.dir;}}
+    let dyaw=this.dir-this.bodyYaw;dyaw=Math.atan2(Math.sin(dyaw),Math.cos(dyaw));
+    this.bodyYaw+=dyaw*Math.min(1,dt*(this.panicT>0||this.type==='zombie'?10:5)); // turn, don't snap
+    let ty=0,tp=0;                           // head tracks the player when close, like LookAtPlayer
+    if(this.panicT<=0&&pd<(this.type==='zombie'?14:6)){
+      ty=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z)-this.bodyYaw;
+      ty=Math.atan2(Math.sin(ty),Math.cos(ty));
+      if(Math.abs(ty)<2){                    // can't crane straight backwards
+        ty=THREE.MathUtils.clamp(ty,-1.2,1.2);
+        tp=THREE.MathUtils.clamp(Math.atan2(player.pos.y+1.6-(this.pos.y+this.head.position.y),
+          Math.hypot(player.pos.x-this.pos.x,player.pos.z-this.pos.z)),-.55,.55);}
+      else ty=0;}
+    this.headYaw+=(ty-this.headYaw)*Math.min(1,dt*8);
+    this.headPitch+=(tp-this.headPitch)*Math.min(1,dt*8);
+    this.head.rotation.y=this.headYaw;this.head.rotation.x=-this.headPitch;
+    this.group.position.copy(this.pos);this.group.rotation.y=this.bodyYaw;}}
 const mobRay=new THREE.Raycaster();
-function attack(){
+let nextAttack=0;                              // minecraft-style swing cooldown
+function mobTargeted(){
   const dir=new THREE.Vector3();camera.getWorldDirection(dir);
   mobRay.set(camera.position,dir);mobRay.far=4;
   for(const m of mobs)
-    if(mobRay.intersectObject(m.group,true).length){m.hit(4);return true;}
-  return false;}
+    if(m.dying<0&&mobRay.intersectObject(m.group,true).length)return m;
+  return null;}
+function attack(){
+  const m=mobTargeted();
+  if(!m)return false;
+  const now=performance.now();
+  if(now>=nextAttack){nextAttack=now+400;m.hit(4);}
+  return true;}                                // on cooldown: swing whiffs, no block dig behind
+
+// ================= MINING (hold left click, MC-style) =================
+// seconds to break by hand (~vanilla; stone-type shortened a bit since there are no tools)
+function hardFor(b){return(b===STONE||b===COBBLE)?3.5:(b===LOG||b===PLANK||isDoor(b))?3
+  :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:.75;}
+// what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters
+function dropFor(b){return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:b;}
+// sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
+function matFor(b){
+  if(b===SAND)return{hit:'stepSand',dig:'digSand',col:0xdcd49a};
+  if(b===STONE||b===COBBLE)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
+  if(b===LOG||b===PLANK||isDoor(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40};
+  if(b===DIRT)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
+  if(b===GLASS)return{hit:'stepStone',dig:'glassBreak',col:0xd6eef5};
+  if(b===LEAF)return{hit:'stepGrass',dig:'digGrass',col:0x2e6b22};
+  return{hit:'stepGrass',dig:'digGrass',col:0x4f9442};}
+// 10 crack stages drawn cumulatively, like destroy_stage_0..9
+const crackTex=(()=>{
+  const texs=[],cc=document.createElement('canvas');cc.width=cc.height=16;
+  const g=cc.getContext('2d');g.fillStyle='rgba(10,10,10,.8)';
+  for(let s=0;s<10;s++){
+    for(let n=0;n<3;n++){                      // grow a few jagged cracks each stage
+      let x=3+Math.random()*10,y=3+Math.random()*10,a=Math.random()*Math.PI*2;
+      for(let i=0,len=3+s;i<len;i++){
+        g.fillRect(x|0,y|0,1,1);
+        a+=(Math.random()-.5)*1.6;x+=Math.cos(a);y+=Math.sin(a);
+        if(x<0||y<0||x>15||y>15)break;}}
+    const c2=document.createElement('canvas');c2.width=c2.height=16;
+    c2.getContext('2d').drawImage(cc,0,0);
+    const t=new THREE.CanvasTexture(c2);
+    t.magFilter=t.minFilter=THREE.NearestFilter;texs.push(t);}
+  return texs;})();
+const crackMat=new THREE.MeshBasicMaterial({map:crackTex[0],transparent:true,depthWrite:false});
+const crackMesh=new THREE.Mesh(new THREE.BoxGeometry(1.004,1.004,1.004),crackMat);
+crackMesh.visible=false;scene.add(crackMesh);
+let mining=null,leftDown=false;
+function stopMining(){mining=null;crackMesh.visible=false;}
+function addDrop(b){
+  const it=hotbar.find(i=>i.b===b);
+  if(!it||it.count>=64)return;
+  it.count++;drawHotbar();
+  play('pop',.5,.8+Math.random()*.4);}         // pickup blip with random pitch, like MC
+function updateMining(dt){
+  if(!leftDown||!document.pointerLockElement){stopMining();return;}
+  if(mobTargeted()){stopMining();return;}      // fist is busy with a mob
+  const r=raycast();
+  if(!r||!r.hit){stopMining();return;}
+  const[x,y,z]=r.hit,b=gB(x,y,z);
+  if(!mining||mining.x!==x||mining.y!==y||mining.z!==z||mining.b!==b)
+    mining={x,y,z,b,t:0,need:hardFor(b),sndT:0}; // looked away: progress resets, like MC
+  const m=matFor(b);
+  if((mining.sndT-=dt)<=0){mining.sndT=.25;
+    play(m.hit,.25,.5+Math.random()*.1);}      // quiet low-pitch taps while digging (vanilla "hit")
+  mining.t+=dt;
+  crackMesh.visible=true;crackMesh.position.set(x+.5,y+.5,z+.5);
+  crackMat.map=crackTex[Math.min(9,(mining.t/mining.need*10)|0)];
+  if(mining.t>=mining.need){
+    if(isDoor(b))breakDoor(x,y,z);else setBlock(x,y,z,AIR);
+    flowWater(x,y,z);flush();
+    S(m.dig,.7,SFX.dig);                       // proper break sound
+    for(let i=0;i<10;i++)spawnFlame(           // block debris burst
+      x+.15+Math.random()*.7,y+.15+Math.random()*.7,z+.15+Math.random()*.7,null,m.col,true);
+    const d=dropFor(b);if(d)addDrop(d);
+    stopMining();}}
 function spawnAnimal(){
   const a=Math.random()*Math.PI*2,d2=14+Math.random()*14;
   const x=Math.floor(player.pos.x+Math.sin(a)*d2),z=Math.floor(player.pos.z+Math.cos(a)*d2);
@@ -750,14 +944,15 @@ function spawnZombie(){
   mobs.push(new Mob('zombie',x+.5,h+1,z+.5));}
   const particles=[];
 const flameG=new THREE.BoxGeometry(.12,.12,.12);
-function spawnFlame(x,y,z,mob){
+function spawnFlame(x,y,z,mob,col,debris){
   if(particles.length>220)return;
   const p=new THREE.Mesh(flameG,new THREE.MeshBasicMaterial({
-    color:Math.random()<.4?0xff5500:(Math.random()<.5?0xffaa00:0xffe066),
+    color:col||(Math.random()<.4?0xff5500:(Math.random()<.5?0xffaa00:0xffe066)),
     transparent:true}));
   p.position.set(x,y,z);
-  const life=.6+Math.random()*.4;
-  p.userData={vy:1.2+Math.random()*1.5,life,max:life,mob:mob||null,
+  const life=debris?.35+Math.random()*.25:.6+Math.random()*.4;
+  p.userData={vy:debris?.8+Math.random()*1.6:1.2+Math.random()*1.5,life,max:life,
+    mob:mob||null,debris:!!debris,
     ox:mob?x-mob.pos.x:0,oy:mob?y-mob.pos.y:0,oz:mob?z-mob.pos.z:0};
   scene.add(p);particles.push(p);}
 const smokeC=new THREE.Color(0x555555);
@@ -770,13 +965,14 @@ function updateParticles(dt){
       p.position.set(u.mob.pos.x+u.ox,u.mob.pos.y+u.oy,u.mob.pos.z+u.oz);
     }else{
       u.mob=null;                           // mob gone: drift up freely
+      if(u.debris)u.vy-=11*dt;              // block crumbs arc out and fall
       p.position.y+=u.vy*dt;}
     p.position.x+=(Math.random()-.5)*dt;
     p.position.z+=(Math.random()-.5)*dt;
     const t=Math.max(0,u.life/u.max);       // 1 -> 0 over lifetime
     p.scale.setScalar(.35+t*1.1);           // shrink toward the end
     p.material.opacity=t<.4?t/.4:1;         // smooth fade-out
-    if(t<.45)p.material.color.lerp(smokeC,Math.min(1,dt*6)); // flame -> smoke
+    if(t<.45&&!u.debris)p.material.color.lerp(smokeC,Math.min(1,dt*6)); // flame -> smoke (debris keeps its colour)
     if(u.life<=0){scene.remove(p);p.material.dispose();particles.splice(i,1);}}}
 function updateMobs(dt){
       while(villagerSpawns.length){
@@ -795,17 +991,24 @@ function updateMobs(dt){
 
 // ================= HOTBAR + MENU + LOOP =================
 const hotbar=[
-  {b:GRASS,n:'Grass',c:'#4f9442'},{b:DIRT,n:'Dirt',c:'#8a5a32'},
-  {b:STONE,n:'Stone',c:'#8b8b8b'},{b:SAND,n:'Sand',c:'#dcd49a'},
-  {b:LOG,n:'Wood',c:'#6b5230'},{b:LEAF,n:'Leaves',c:'#2e6b22'},
-  {b:PLANK,n:'Planks',c:'#a8824e'},{b:COBBLE,n:'Cobble',c:'#9a9a9a'}];
+  {b:GRASS,n:'Grass',c:'#4f9442',count:1},{b:DIRT,n:'Dirt',c:'#8a5a32',count:1},
+  {b:STONE,n:'Stone',c:'#8b8b8b',count:1},{b:SAND,n:'Sand',c:'#dcd49a',count:1},
+  {b:LOG,n:'Wood',c:'#6b5230',count:1},{b:LEAF,n:'Leaves',c:'#2e6b22',count:1},
+  {b:PLANK,n:'Planks',c:'#a8824e',count:1},{b:COBBLE,n:'Cobble',c:'#9a9a9a',count:1}];
 let sel=0;
 function drawHotbar(){
   const el=document.getElementById('hotbar');el.innerHTML='';
   hotbar.forEach((it,i)=>{const d=document.createElement('div');
     d.className='slot'+(i===sel?' sel':'');
-    d.innerHTML='<div class="sw" style="background:'+it.c+'"></div>'+(i+1)+' '+it.n;
+    if(it.count>0)                            // empty slot stays truly empty, like MC
+      d.innerHTML='<div class="sw" style="background:'+it.c+'"></div>'+
+        (it.count>1?'<span class="cnt">'+it.count+'</span>':'');
     el.appendChild(d);});}
+let nameT=0;
+function showItemName(){                      // vanilla: selected item name flashes above the hotbar
+  const n=document.getElementById('itemname');
+  n.textContent=hotbar[sel].n;n.style.opacity=1;
+  clearTimeout(nameT);nameT=setTimeout(()=>n.style.opacity=0,1300);}
 drawHotbar();
 document.getElementById('bSingle').onclick=()=>{
   menuEl.style.display='none';infoEl.style.display='block';audio().resume();};
@@ -819,6 +1022,7 @@ function tick(){
   const dt=Math.min(clock.getDelta(),.05);
   updateChunks();
   updateSky(dt);updatePlayer(dt);updateMobs(dt);
+  updateMining(dt);
   updateParticles(dt);
   updateHighlight();
   renderer.render(scene,camera);}
