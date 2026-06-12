@@ -3,18 +3,22 @@
 <head>
 <meta charset="utf-8">
 <title>MineClone</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='6' fill='%2356a832'/><rect y='6' width='16' height='10' fill='%23795433'/></svg>">
 <style>
-  html,body{margin:0;padding:0;overflow:hidden;background:#000;font-family:monospace}
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:monospace}
+  canvas{display:block;position:fixed;top:0;left:0;z-index:0}
+  #cross,#hud,#clock,#flash,#info{z-index:1}
   #cross{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;font-size:20px;pointer-events:none;text-shadow:0 0 2px #000}
   /* ---- Minecraft-style HUD: big hotbar + hearts ---- */
   #hud{position:fixed;bottom:6px;left:50%;transform:translateX(-50%)}
   #itemname{text-align:center;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000;opacity:0;transition:opacity .6s;height:22px}
   #hearts{color:#f22;font-size:22px;text-shadow:2px 2px 0 #400;margin:0 0 3px 2px;letter-spacing:1px}
-  #hotbar{display:flex;gap:4px;padding:4px;background:#8b8b8b;border:4px solid #1b1b1b;box-shadow:inset 0 0 0 2px #6f6f6f}
-  .slot{position:relative;width:54px;height:54px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;
-    background:rgba(22,22,22,.6);border:3px solid;border-color:#373737 #fff #fff #373737}
-  .slot.sel{box-shadow:0 0 0 4px #efefef,0 0 0 5px #000;transform:scale(1.09);z-index:2}
-  .sw{width:36px;height:36px;border:1px solid #0009;image-rendering:pixelated}
+  #hotbar{display:flex;gap:5px;padding:5px;background:#8b8b8b;border:3px solid #161616}
+  .slot{position:relative;width:52px;height:52px;display:flex;align-items:center;justify-content:center;
+    background:rgba(22,22,22,.6);box-shadow:inset 2px 2px 0 #353535,inset -2px -2px 0 #757575}
+  .slot.sel::after{content:'';position:absolute;inset:-9px;border:4px solid #dcdcdc;
+    outline:2px solid #161616;box-shadow:inset 0 0 0 2px #161616;z-index:2;pointer-events:none}
+  .sw{width:40px;height:40px;image-rendering:pixelated}
   .cnt{position:absolute;bottom:-1px;right:3px;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000}
   #info{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,.7);padding:20px 30px;border-radius:8px;text-align:center;line-height:1.7;display:none}
   #flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .3s}
@@ -30,6 +34,69 @@
   .mbtn:hover{background:#83a5d4}
   #mMsg{color:#ff8;height:22px;margin-top:16px;font-size:14px}
   #mFoot{position:absolute;bottom:8px;left:10px;color:#ddd;font-size:12px}
+  /* ---- sub-screens (Select World / Create World / Loading) ---- */
+  .mscreen{position:fixed;inset:0;z-index:11;display:none;flex-direction:column;align-items:center;image-rendering:pixelated}
+  .mscreen.show{display:flex}
+  .mscreen::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.55)}
+  .mscreen>*{position:relative}
+  .mtitle{color:#fff;font-size:22px;margin:18px 0 12px;text-shadow:2px 2px 0 #3f3f3f}
+  .wlist{width:min(640px,92vw);flex:1;overflow-y:auto;background:rgba(0,0,0,.45);border-top:2px solid #000;border-bottom:2px solid #000;margin-bottom:14px;padding:6px}
+  .wrow{padding:8px 10px;margin:3px;color:#fff;cursor:pointer;border:2px solid transparent}
+  .wrow:hover{background:rgba(255,255,255,.07)}
+  .wrow.sel{border-color:#fff;background:rgba(0,0,0,.4);box-shadow:0 0 0 2px #000}
+  .wrow .wn{font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #2f2f2f}
+  .wrow .wi{color:#9a9a9a;font-size:13px;line-height:1.45}
+  .wempty{color:#aaa;text-align:center;margin-top:46px;font-size:15px}
+  .btnrow{display:flex;gap:10px;margin-bottom:8px}
+  .mbtn.half{width:250px;padding:11px;font-size:16px;margin:0}
+  .mbtn:disabled,.mbtn:disabled:hover{color:#a0a0a0;background:#4f4f4f;cursor:default}
+  .cwform{width:min(440px,92vw);display:flex;flex-direction:column;flex:1;margin-top:6px}
+  .cwform label{color:#a0a0a0;font-size:14px;margin:15px 0 5px}
+  .minput{background:#000;border:2px solid #a0a0a0;color:#fff;font-family:monospace;font-size:17px;padding:9px;outline:none}
+  .minput:focus{border-color:#fff}
+  .hint{color:#7d7d7d;font-size:12px;margin-top:5px}
+  .cwform .mbtn{width:100%;margin:15px 0 0}
+  /* ---- world generation screen ---- */
+  #loading{justify-content:center}
+  #loadTitle{color:#fff;font-size:26px;text-shadow:2px 2px 0 #3f3f3f}
+  #loadStage{color:#ddd;font-size:15px;margin:16px 0 18px;animation:lpulse 1.2s infinite}
+  @keyframes lpulse{50%{opacity:.5}}
+  .pbar{width:min(400px,80vw);height:12px;border:2px solid #fff;background:#000;padding:2px}
+  #pfill{height:100%;width:0;background:#4cbb17;transition:width .15s linear}
+  #loadPct{color:#fff;margin-top:10px;font-size:14px}
+  #loadTip{position:absolute;bottom:26px;color:#ffff55;font-size:13px;text-shadow:2px 2px 0 #3f3f00}
+  /* ---- Minecraft-style survival inventory (E) ---- */
+  #inv{position:fixed;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+  #inv.show{display:flex}
+  #invPanel{background:#c6c6c6;padding:16px;border:2px solid #1b1b1b;border-radius:4px;
+    box-shadow:inset 3px 3px 0 #fff,inset -3px -3px 0 #555,0 0 24px rgba(0,0,0,.55)}
+  .islot{position:relative;width:48px;height:48px;background:#8b8b8b;
+    box-shadow:inset 3px 3px 0 #373737,inset -3px -3px 0 #fff;
+    display:flex;align-items:center;justify-content:center}
+  .islot:hover::after{content:'';position:absolute;inset:3px;background:rgba(255,255,255,.45);pointer-events:none}
+  .islot img,.islot canvas{width:40px;height:40px;image-rendering:pixelated;pointer-events:none;position:static}
+  .islot .cnt{font-size:18px;right:3px;bottom:0;pointer-events:none}
+  #invTop{display:flex;align-items:flex-start;margin-bottom:18px}
+  #armorCol,#offCol{display:flex;flex-direction:column}
+  #offCol{justify-content:flex-end;height:192px}
+  #pview{width:128px;height:192px;margin:0 5px;background:#000;
+    box-shadow:inset 3px 3px 0 #373737,inset -3px -3px 0 #fff;overflow:hidden}
+  #pview canvas{position:static;width:128px;height:192px;display:block}
+  #craftWrap{margin-left:16px}
+  .invLabel{color:#3f3f3f;font-size:24px;font-weight:bold;margin:0 0 8px 2px}
+  #craftRow{display:flex;align-items:center}
+  #craftGrid{display:grid;grid-template-columns:repeat(2,48px)}
+  #craftArrow{margin:0 10px}
+  /* crafting table screen: 3x3 grid replaces the player/armor top section */
+  #tableTop{display:none}
+  #tableRow{display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+  #tableGrid{display:grid;grid-template-columns:repeat(3,48px)}
+  #tableRow svg{margin:0 24px}
+  #invGrid{display:grid;grid-template-columns:repeat(9,48px)}
+  #invHotRow{display:grid;grid-template-columns:repeat(9,48px);margin-top:10px}
+  #heldItem{position:fixed;z-index:7;width:44px;height:44px;pointer-events:none;display:none}
+  #heldItem img{width:44px;height:44px;image-rendering:pixelated}
+  #heldItem .cnt{font-size:18px}
 </style>
 </head>
 <body>
@@ -41,10 +108,44 @@
 </div>
 <div id="clock"></div>
 <div id="flash"></div>
+<!-- ---- survival inventory screen (E) ---- -->
+<div id="inv">
+  <div id="invPanel">
+    <div id="invTop">
+      <div id="armorCol"></div>
+      <div id="pview"></div>
+      <div id="offCol"></div>
+      <div id="craftWrap">
+        <div class="invLabel">Crafting</div>
+        <div id="craftRow">
+          <div id="craftGrid"></div>
+          <svg id="craftArrow" width="42" height="29" viewBox="0 0 16 11" shape-rendering="crispEdges">
+            <path d="M1 4h9V1l5 4.5L10 10V7H1z" fill="#8b8b8b" stroke="#373737" stroke-width="1"/></svg>
+          <div id="craftOutWrap"></div>
+        </div>
+      </div>
+    </div>
+    <!-- ---- crafting table top section (3x3), shown instead of invTop ---- -->
+    <div id="tableTop">
+      <div class="invLabel">Crafting</div>
+      <div id="tableRow">
+        <div id="tableGrid"></div>
+        <svg width="42" height="29" viewBox="0 0 16 11" shape-rendering="crispEdges">
+          <path d="M1 4h9V1l5 4.5L10 10V7H1z" fill="#8b8b8b" stroke="#373737" stroke-width="1"/></svg>
+        <div id="tableOutWrap"></div>
+      </div>
+    </div>
+    <div id="invGrid"></div>
+    <div id="invHotRow"></div>
+  </div>
+  <div id="heldItem"></div>
+</div>
 <div id="info"><b>MINECLONE</b><br><br>Click to play<br>WASD move &middot; Space jump / swim up<br>
 Hold left click: mine blocks &middot; Click: attack<br>
 Right click: place (uses inventory!) &middot; Mine to collect more<br>
-1-8 / mouse wheel: select block &middot; Middle click: pick block<br><br>
+1-8 / mouse wheel: select block &middot; Middle click: pick block<br>
+E: inventory + crafting &middot; log&rarr;4 planks &middot; 2 planks&rarr;4 sticks<br>
+4 planks &rarr; crafting table &middot; place it + right-click for 3x3 tool crafting!<br><br>
 Watch out for zombies at night!</div>
 <div id="menu">
   <h1>MINECLONE</h1>
@@ -54,6 +155,46 @@ Watch out for zombies at night!</div>
   <button class="mbtn" id="bQuit">Quit Game</button>
   <div id="mMsg"></div>
   <div id="mFoot">MineClone 1.0 - single file demo</div>
+</div>
+<!-- ---- Select World screen ---- -->
+<div id="selWorld" class="mscreen">
+  <div class="mtitle">Select World</div>
+  <div id="worldList" class="wlist"></div>
+  <div class="btnrow">
+    <button class="mbtn half" id="bCreateNew">Create New World</button>
+    <button class="mbtn half" id="bPlayWorld" disabled>Play</button>
+  </div>
+  <div class="btnrow">
+    <button class="mbtn half" id="bDeleteWorld" disabled>Delete</button>
+    <button class="mbtn half" id="bCancelSel">Cancel</button>
+  </div>
+</div>
+<!-- ---- Create New World screen ---- -->
+<div id="createWorld" class="mscreen">
+  <div class="mtitle">Create New World</div>
+  <div class="cwform">
+    <label for="wName">World Name</label>
+    <input class="minput" id="wName" value="New World" maxlength="32" spellcheck="false">
+    <div class="hint" id="saveHint">Will be saved in: New World</div>
+    <button class="mbtn" id="bGameMode">Game Mode: Survival</button>
+    <div class="hint" id="gmHint">Search for resources, build, and survive the night</div>
+    <button class="mbtn" id="bDifficulty">Difficulty: Normal</button>
+    <div class="hint" id="diffHint">Zombies spawn at night and deal standard damage</div>
+    <label for="wSeed">Seed for the world generator</label>
+    <input class="minput" id="wSeed" placeholder="Leave blank for a random seed" spellcheck="false">
+  </div>
+  <div class="btnrow">
+    <button class="mbtn half" id="bDoCreate">Create New World</button>
+    <button class="mbtn half" id="bCancelCreate">Cancel</button>
+  </div>
+</div>
+<!-- ---- Generating world screen ---- -->
+<div id="loading" class="mscreen">
+  <div id="loadTitle">Generating world</div>
+  <div id="loadStage">Building terrain</div>
+  <div class="pbar"><div id="pfill"></div></div>
+  <div id="loadPct">0%</div>
+  <div id="loadTip">Tip: Watch out for zombies at night!</div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -115,6 +256,8 @@ const SFX={
   pig(v){tone({type:'square',f0:250,f1:430,dur:.08,vol:v});            // double oink
          setTimeout(()=>tone({type:'square',f0:430,f1:140,dur:.13,vol:v}),85);},
   sheep(v){tone({type:'sawtooth',f0:350,f1:280,dur:.55,vol:v,wobble:10});},
+  chicken(v){tone({type:'square',f0:900,f1:1300,dur:.07,vol:v*.8});          // sharp double cluck
+             setTimeout(()=>tone({type:'square',f0:1300,f1:700,dur:.09,vol:v*.8}),70);},
   villager(v){tone({type:'sine',f0:250,f1:140,dur:.45,vol:v*1.4,wobble:6});},
   zombie(v){tone({type:'sawtooth',f0:115,f1:58,dur:1.0,vol:v,wobble:3});},
   doorOpen(){tone({type:'square',f0:120,f1:280,dur:.16,vol:.18,wobble:30}); // creak up
@@ -142,6 +285,20 @@ fillTile(6,(x,y)=>{const d=Math.max(Math.abs(x-7.5),Math.abs(y-7.5));
   return(d|0)%3<2?'#9a7748':'#6b5230';});
 fillTile(7,()=>rnd(['#2e6b22','#39822c','#256018','#317527','#2a6620']));
 fillTile(8,(x,y)=>(y%4===3)?'#7d5f36':rnd(['#a8824e','#b58d57','#9f7a47']));
+// crafting table (tiles 9 top / 14 side / 15 front): plank top with a dark
+// work-grid, sides with the recessed dark tool panels, like the vanilla block
+fillTile(9,(x,y)=>{
+  if(x===0||y===0||x===15||y===15)return rnd(['#6b5230','#5a4426']);
+  if(x===5||x===10||y===5||y===10)return rnd(['#7d5f36','#6b5230']);
+  return rnd(['#b58d57','#a8824e','#bb9259']);});
+fillTile(14,(x,y)=>{
+  if(y<2)return rnd(['#b58d57','#a8824e']);
+  if(y>=5&&y<=10&&x>=4&&x<=11)return rnd(['#3a2a18','#2e2014','#241a0e']);
+  return(y%4===3)?'#7d5f36':rnd(['#9a7748','#8a6a40','#93714a']);});
+fillTile(15,(x,y)=>{
+  if(y<2)return rnd(['#b58d57','#a8824e']);
+  if(y>=5&&y<=10&&((x>=3&&x<=6)||(x>=9&&x<=12)))return rnd(['#3a2a18','#2e2014','#241a0e']);
+  return(y%4===3)?'#7d5f36':rnd(['#9a7748','#8a6a40','#93714a']);});
 fillTile(10,(x,y)=>(x%4===0||y%4===0)?rnd(['#5f5f5f','#6a6a6a'])
   :rnd(['#9a9a9a','#8a8a8a','#a5a5a5']));
 fillTile(11,(x,y)=>(x===0||y===0||x===15||y===15)?'#d6eef5'
@@ -175,14 +332,23 @@ for(let y=0;y<16;y++)for(let x=0;x<16;x++){
 const menuEl=document.getElementById('menu');
 menuEl.style.background='url('+bgC.toDataURL()+')';
 menuEl.style.backgroundSize='64px 64px';
+let inGame=false;                          // false while on any menu screen
+for(const id of['selWorld','createWorld','loading']){
+  const e=document.getElementById(id);
+  e.style.background='url('+bgC.toDataURL()+')';
+  e.style.backgroundSize='64px 64px';}
 
 // ================= WORLD DATA =================
 // ================= INFINITE CHUNK WORLD =================
 const CH=16,H=48,WATER=13,RENDER=5;
 const AIR=0,GRASS=1,DIRT=2,STONE=3,SAND=4,LOG=5,LEAF=6,PLANK=7,WATERB=8,COBBLE=9,GLASS=10,
-      DOORCL=12,DOORCU=13,DOOROL=14,DOOROU=15;
+      CTABLE=11,DOORCL=12,DOORCU=13,DOOROL=14,DOOROU=15;
+// items (crafted, never placeable in the world): ids start above all block ids
+const STICK_I=20,WSWORD_I=21,WAXE_I=22,WPICK_I=23,WSHOVEL_I=24,WHOE_I=25;
+const isTool=b=>b>=WSWORD_I&&b<=WHOE_I;
+const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
-const SEED=(Math.random()*1e9)|0;
+let SEED=(Math.random()*1e9)|0;
 const isSolid=b=>b!==AIR&&b!==WATERB&&b!==DOOROL&&b!==DOOROU; // open doors are passable
 const solidAt=(x,y,z)=>y<0?true:isSolid(gB(x,y,z));
 const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b);
@@ -231,7 +397,12 @@ function tree(x,y,z){
     if(gB(x+dx,y+dy,z+dz)===AIR)sB(x+dx,y+dy,z+dz,LEAF);}
   sB(x,y+th+1,z,LEAF);
   sB(x+1,y+th,z,LEAF);sB(x-1,y+th,z,LEAF);
-  sB(x,y+th,z+1,LEAF);sB(x,y+th,z-1,LEAF);}
+  sB(x,y+th,z+1,LEAF);sB(x,y+th,z-1,LEAF);
+  // a tree near a chunk edge writes into neighbour chunks — re-mesh any that
+  // were already built, or the canopy shows up half-missing / glitched
+  for(let ccx=Math.floor((x-2)/CH);ccx<=Math.floor((x+2)/CH);ccx++)
+    for(let ccz=Math.floor((z-2)/CH);ccz<=Math.floor((z+2)/CH);ccz++){
+      const c=chunkMap.get(ckey(ccx,ccz));if(c&&c.meshed)c.dirty=true;}}
 const villagerSpawns=[];
 const HOUSE_STYLES=[
   {rx:3,rz:2,wh:3,wall:PLANK,corner:LOG,floor:PLANK,roof:'flat'},          // classic plank hut
@@ -330,7 +501,8 @@ function tileFor(b,f){switch(b){
   case DIRT:return 2;case STONE:return 3;case SAND:return 4;
   case LOG:return(f===2||f===3)?6:5;
   case LEAF:return 7;case PLANK:return 8;
-  case COBBLE:return 10;case GLASS:return 11;}return 3;}
+  case COBBLE:return 10;case GLASS:return 11;
+  case CTABLE:return f===3?9:f===2?8:f<2?14:15;}return 3;}
 function buildChunkMesh(c){
   if(c.s){scene.remove(c.s);c.s.geometry.dispose();c.s=null;}
   if(c.w){scene.remove(c.w);c.w.geometry.dispose();c.w=null;}
@@ -425,6 +597,9 @@ function updateChunks(){
 // ================= SKY / DAY-NIGHT =================
 const amb=new THREE.AmbientLight(0xe9eef5,.7);scene.add(amb); // near-neutral fill: strong blue here made white mobs look glossy
 const sun=new THREE.DirectionalLight(0xfff2cc,1);scene.add(sun);scene.add(sun.target);
+// Mobs are rendered unlit, Minecraft-style: baked per-face shading * texture * mobLight.
+// Scene lights can stack past 1.0 and blow white wool out into a glossy sheen; this can't.
+let mobLight=1;                                // day/night brightness applied to entities
 const sunMesh=new THREE.Mesh(new THREE.PlaneGeometry(18,18),
   new THREE.MeshBasicMaterial({color:0xffdd55,fog:false}));scene.add(sunMesh);
 const moonMesh=new THREE.Mesh(new THREE.PlaneGeometry(11,11),
@@ -458,6 +633,7 @@ function updateSky(dt){
   const sd=new THREE.Vector3(Math.cos(ang),elev,.35).normalize();
   sun.position.copy(player.pos).addScaledVector(sd,100);
   sun.target.position.copy(player.pos);
+  mobLight=.25+.75*daylight;                   // entities: full texture brightness at noon, dim at night
   sunMesh.position.copy(player.pos).addScaledVector(sd,180);sunMesh.lookAt(player.pos);
   moonMesh.position.copy(player.pos).addScaledVector(sd,-180);moonMesh.lookAt(player.pos);
   const col=nightC.clone().lerp(dayC,daylight);
@@ -487,6 +663,10 @@ const SOUND_URLS={
   zombieHurt:seq('mob/zombie/','hurt',2),
   zombieDeath:['mob/zombie/death.ogg'],
   zombieStep:seq('mob/zombie/','step',5),
+  chicken:seq('mob/chicken/','say',3),        // clucks: ambient + hurt/death voice
+  chickenHurt:seq('mob/chicken/','hurt',2),   // pack has no chicken death; hurt doubles for it
+  chickenStep:seq('mob/chicken/','step',2),
+  chickenEgg:['mob/chicken/plop.ogg'],        // the egg-laying "plop"
   splash:['liquid/splash.ogg','liquid/splash2.ogg'],
   swim:seq('liquid/','swim',18),
   stepGrass:seq('step/','grass',6),
@@ -499,7 +679,12 @@ const SOUND_URLS={
   digSand:seq('dig/','sand',4),
   digStone:seq('dig/','stone',4),
   digWood:seq('dig/','wood',4),
+  doorOpen:['block/wooden_door/open.ogg','block/wooden_door/open2.ogg','block/wooden_door/open3.ogg','block/wooden_door/open4.ogg'],
+  doorClose:['block/wooden_door/close.ogg','block/wooden_door/close2.ogg','block/wooden_door/close3.ogg','block/wooden_door/close4.ogg','block/wooden_door/close5.ogg','block/wooden_door/close6.ogg'],
+  fire:['fire/fire.ogg'],             // looping crackle while a mob burns
+  fireIgnite:['fire/ignite.ogg'],     // whoosh when sunlight sets a zombie alight
   glassBreak:seq('random/','glass',3),
+  uiClick:['random/click.ogg'],       // menu button click
   pop:['random/pop.ogg']};            // item pickup blip
 const loadedSnd={};
 for(const k in SOUND_URLS)
@@ -514,30 +699,103 @@ const S=(k,vol,fb)=>{if(!play(k,vol))fb&&fb();};
 function mobSound(type,pos){
   const d=pos.distanceTo(player.pos);if(d>22)return;
   const vol=.25/(1+d*.18);
-  S(type,vol*3,()=>SFX[type](vol));}
+  // vanilla gives every ambient call a random pitch (0.9x-1.1x, ±20% for babies/variety)
+  if(!play(type,vol*3,.9+Math.random()*.2))SFX[type](vol);}
+
+// ---- lobby music ----
+// +10% boost needs Web Audio, but on file:// a MediaElementSource is CORS-muted
+// (it "plays" but outputs silence), so the booster is only wired up over http(s).
+const lobbyMusic=new Audio(SND_DIR+'musics/minecraft-music-lobby.mp3');
+lobbyMusic.loop=true;lobbyMusic.preload='auto';lobbyMusic.volume=1;
+let musicWired=false;
+function startMenuMusic(){
+  if(inGame||!lobbyMusic.paused)return;
+  if(!musicWired&&location.protocol!=='file:'){musicWired=true;
+    try{const ac=audio();ac.resume();
+      const src=ac.createMediaElementSource(lobbyMusic);
+      const g=ac.createGain();g.gain.value=1.1;        // +10%
+      src.connect(g);g.connect(ac.destination);}catch(e){}}
+  lobbyMusic.play().catch(()=>{});}
+function stopMenuMusic(){lobbyMusic.pause();lobbyMusic.currentTime=0;}
+// autoplay right away when the browser allows it (e.g. good media-engagement
+// score); otherwise the first click / key press starts it
+startMenuMusic();
+const musicRetry=setInterval(()=>{
+  if(inGame||!lobbyMusic.paused){clearInterval(musicRetry);return;}
+  startMenuMusic();},600);
+addEventListener('pointerdown',startMenuMusic);
+addEventListener('keydown',startMenuMusic);
 
 // ================= PLAYER =================
 const keys={};
-addEventListener('keydown',e=>{keys[e.code]=true;
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;      // typing a world name, not playing
+  if(e.code==='KeyE'&&inGame){e.preventDefault();toggleInv();return;}
+  if(invOpen){if(e.code==='Escape')closeInv();return;} // inventory captures the keyboard
+  keys[e.code]=true;
   if(e.code.startsWith('Digit')){const n=+e.code[5]-1;
     if(n>=0&&n<hotbar.length){sel=n;drawHotbar();showItemName();}}});
 addEventListener('keyup',e=>keys[e.code]=false);
 let sx=8,sz=8;
-outer:for(let r=0;r<64;r++)                       // spiral out until dry land
-  for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++){
-    if(Math.max(Math.abs(dx),Math.abs(dz))!==r)continue;
-    const x=8+dx,z=8+dz,g=groundH(x,z);
-    if(g>WATER&&gB(x,g,z)!==WATERB){sx=x;sz=z;break outer;}}
+// groundH() skips leaves/logs, so a tree on the column is invisible to it —
+// check the body space above ground is actually open before spawning there
+const colClear=(x,z,g)=>{for(let i=1;i<=4;i++)if(isSolid(gB(x,g+i,z)))return false;return true;};
+function decorateAround(x,z){
+  const cx=Math.floor(x/CH),cz=Math.floor(z/CH);
+  for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)decorate(cx+dx,cz+dz);}
+function findSpawn(){                             // spiral out until clear dry land
+  sx=8;sz=8;
+  outer:for(let r=0;r<64;r++)                     // first pass: any dry column
+    for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++){
+      if(Math.max(Math.abs(dx),Math.abs(dz))!==r)continue;
+      const x=8+dx,z=8+dz,g=groundH(x,z);
+      if(g>WATER&&gB(x,g,z)!==WATERB){sx=x;sz=z;break outer;}}
+  // trees are planted at decoration time, after the pass above ran — grow them
+  // now, then nudge spawn off any column a trunk or leaves ended up occupying
+  outer2:for(let r=0;r<64;r++)
+    for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++){
+      if(Math.max(Math.abs(dx),Math.abs(dz))!==r)continue;
+      const x=sx+dx,z=sz+dz;decorateAround(x,z);
+      const g=groundH(x,z);
+      if(g>WATER&&gB(x,g,z)!==WATERB&&colClear(x,z,g)){sx=x;sz=z;break outer2;}}}
+findSpawn();
 const player={pos:new THREE.Vector3(sx+.5,0,sz+.5),vel:new THREE.Vector3(),
   yaw:0,pitch:0,onGround:false,hp:20,wasInWater:false,swimT:0,stepT:0};
 player.pos.y=groundH(sx,sz)+2;
 const spawn=player.pos.clone();
+// world settings chosen in the Create New World menu
+const world={name:'New World',mode:'Survival',diff:'Normal'};
+const isCreative=()=>world.mode==='Creative';
+function resetWorld(newSeed){                     // wipe everything, regen from a seed
+  SEED=newSeed;
+  for(const c of chunkMap.values())unmesh(c);
+  chunkMap.clear();
+  villagerSpawns.length=0;
+  for(const m of mobs)m.remove();
+  mobs.length=0;
+  findSpawn();
+  player.pos.set(sx+.5,groundH(sx,sz)+2,sz+.5);
+  player.vel.set(0,0,0);player.yaw=0;player.pitch=0;player.hp=20;
+  spawn.copy(player.pos);
+  dayFrac=.3;}
+function randomRespawn(){                          // drop in at fresh coords on dry land
+  for(let i=0;i<64;i++){
+    // ±5000 max: out in the millions float32 precision collapses and the
+    // whole view shakes — rendering breaks long before real MC's 30M border
+    const x=Math.floor((Math.random()*2-1)*5000);
+    const z=Math.floor((Math.random()*2-1)*5000);
+    decorateAround(x,z);                            // grow trees first so we can't land inside one
+    const g=groundH(x,z);
+    if(g>WATER&&gB(x,g,z)!==WATERB&&colClear(x,z,g)){
+      player.pos.set(x+.5,g+2,z+.5);player.vel.set(0,0,0);return;}}
+  player.pos.copy(spawn);player.vel.set(0,0,0);     // fallback: original spawn
+}
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement){
   player.yaw-=e.movementX*.0024;
   player.pitch=THREE.MathUtils.clamp(player.pitch-e.movementY*.0024,-1.55,1.55);}});
 const infoEl=document.getElementById('info');
 document.addEventListener('pointerlockchange',()=>{
-  infoEl.style.display=(document.pointerLockElement||menuEl.style.display!=='none')?'none':'block';});
+  infoEl.style.display=(document.pointerLockElement||!inGame||invOpen)?'none':'block';});
 function raycast(){
   const dir=new THREE.Vector3();camera.getWorldDirection(dir);
   let prev=null,last=null;
@@ -550,7 +808,7 @@ function raycast(){
       prev=[bx,by,bz];last=key;}}
   return null;}
 renderer.domElement.addEventListener('mousedown',e=>{
-  if(menuEl.style.display!=='none')return;
+  if(!inGame||invOpen)return;
   audio().resume();
   if(!document.pointerLockElement){renderer.domElement.requestPointerLock();return;}
   if(e.button===0){
@@ -559,19 +817,23 @@ renderer.domElement.addEventListener('mousedown',e=>{
   }else if(e.button===1){e.preventDefault();
     const r=raycast();
     if(r&&r.hit){const b=gB(...r.hit);
-      const i=hotbar.findIndex(it=>it.b===b);
+      const i=hotbar.findIndex(it=>it&&it.b===b);
       if(i>=0){sel=i;drawHotbar();showItemName();}}
   }else if(e.button===2){
     const r=raycast();if(!r)return;
     if(r.hit&&isDoor(gB(...r.hit))){toggleDoor(...r.hit);return;}
+    if(r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
     if(!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
     const b=gB(x,y,z);if(b!==AIR&&b!==WATERB)return;
     const p=player.pos;
     if(x+1>p.x-.3&&x<p.x+.3&&z+1>p.z-.3&&z<p.z+.3&&y+1>p.y&&y<p.y+1.8)return;
-    if(hotbar[sel].count<=0)return;          // out of this block: mine to get more
-    hotbar[sel].count--;drawHotbar();
-    setBlock(x,y,z,hotbar[sel].b);flush();S('place',.6,SFX.place);}});
+    const it=hotbar[sel];
+    if(!it||it.b>=STICK_I||(!isCreative()&&it.count<=0))return; // tools/sticks aren't placeable
+    if(!isCreative()&&--it.count<=0)hotbar[sel]=null; // last one placed: slot frees up
+    drawHotbar();
+    setBlock(x,y,z,it.b);flush();
+    if(!play(matFor(it.b).dig,.7,.8))SFX.place();}}); // vanilla: place sound = the block's dig family at fixed 0.8 pitch
 addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;});
 addEventListener('wheel',e=>{if(!document.pointerLockElement)return;
   sel=(sel+(e.deltaY>0?1:-1)+hotbar.length)%hotbar.length;drawHotbar();showItemName();});
@@ -630,13 +892,16 @@ function updatePlayer(dt){
   camera.position.copy(player.pos).add(new THREE.Vector3(0,1.62,0));
   camera.rotation.y=player.yaw;camera.rotation.x=player.pitch;
   document.getElementById('hearts').textContent=
-    '❤'.repeat(Math.max(0,Math.ceil(player.hp/2)));}
+    isCreative()?'':'❤'.repeat(Math.max(0,Math.ceil(player.hp/2)));}
 function damagePlayer(n){
+  if(isCreative())return;                          // creative: no damage at all
   player.hp-=n;S('hurt',.6,SFX.hurt);
   const fl=document.getElementById('flash');
   fl.style.opacity=.45;setTimeout(()=>fl.style.opacity=0,150);
   player.vel.y=4;
-  if(player.hp<=0){player.hp=20;player.pos.copy(spawn);player.vel.set(0,0,0);}}
+  if(player.hp<=0){
+    if(world.mode==='Hardcore'){hardcoreDeath();return;} // one life only
+    player.hp=20;randomRespawn();}}
 const hl=new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002,1.002,1.002)),
   new THREE.LineBasicMaterial({color:0x000000}));
@@ -646,11 +911,27 @@ function updateHighlight(){const r=raycast();
   else hl.visible=false;}
 
 // ================= MOBS =================
-const lam=c=>new THREE.MeshLambertMaterial({color:c});
-function part(w,h,d,c,x,y,z,pivotTop){
-  const g=new THREE.BoxGeometry(w,h,d);
+function noiseTex(lo,hi){ // grayscale pixel noise, multiplied under the part colour
+  const c=document.createElement('canvas');c.width=c.height=8;
+  const x=c.getContext('2d');
+  for(let i=0;i<8;i++)for(let j=0;j<8;j++){
+    const v=Math.round(255*(lo+Math.random()*(hi-lo)));
+    x.fillStyle='rgb('+v+','+v+','+v+')';x.fillRect(i,j,1,1);}
+  const t=new THREE.CanvasTexture(c);
+  t.magFilter=t.minFilter=THREE.NearestFilter;return t;}
+const woolTex=noiseTex(.86,1),hideTex=noiseTex(.9,1), // bright wool patches / subtle skin grain
+      flatTex=noiseTex(1,1);                          // plain — for crisp face details
+function shadeBox(g){ // bake Minecraft entity face shading: top 1, front/back .85, sides .7, bottom .55
+  const n=g.attributes.normal,col=new Float32Array(n.count*3);
+  for(let i=0;i<n.count;i++){
+    const ny=n.getY(i),s=ny>.5?1:ny<-.5?.55:Math.abs(n.getX(i))>.5?.7:.85;
+    col[i*3]=col[i*3+1]=col[i*3+2]=s;}
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));}
+const lam=(c,t)=>new THREE.MeshBasicMaterial({color:c,map:t||hideTex,vertexColors:true});
+function part(w,h,d,c,x,y,z,pivotTop,tex){
+  const g=new THREE.BoxGeometry(w,h,d);shadeBox(g);
   if(pivotTop)g.translate(0,-h/2,0);
-  const m=new THREE.Mesh(g,lam(c));m.position.set(x,y,z);return m;}
+  const m=new THREE.Mesh(g,lam(c,tex));m.position.set(x,y,z);return m;}
 function humanoid(skin,shirt,pants,opts={}){
   const g=new THREE.Group(),limbs=[];
   const head=new THREE.Group();head.position.set(0,1.5,0); // pivot at the neck
@@ -666,9 +947,9 @@ function humanoid(skin,shirt,pants,opts={}){
   g.add(la,ra,ll,rl);
   limbs.push([ll,1],[rl,-1]);if(!opts.zombie)limbs.push([la,-1],[ra,1]);
   return{g,limbs,head};}
-function quadruped(bodyC,headC,legH){
+function quadruped(bodyC,headC,legH,bodyTex){
   const g=new THREE.Group(),limbs=[];
-  g.add(part(.7,.55,1.0,bodyC,0,legH+.275,0));
+  g.add(part(.7,.55,1.0,bodyC,0,legH+.275,0,false,bodyTex));
   const head=new THREE.Group();head.position.set(0,legH+.5,.42); // pivot at the neck
   head.add(part(.5,.45,.45,headC,0,0,.2));
   g.add(head);
@@ -678,22 +959,47 @@ function quadruped(bodyC,headC,legH){
     g.add(l);limbs.push([l,(i===0||i===3)?1:-1]);i++;} // diagonal pairs swing together (trot)
   return{g,limbs,head};}
 const builders={
-  pig:()=>{const q=quadruped(0xeda3ab,0xe8949d,.35);
-    q.head.add(part(.22,.14,.08,0xd9858f,0,-.06,.44));      // snout
-    q.head.add(part(.05,.06,.02,0x6e3a42,-.05,-.06,.485));  // nostrils
-    q.head.add(part(.05,.06,.02,0x6e3a42,.05,-.06,.485));
-    q.head.add(part(.07,.1,.02,0xffffff,-.15,.08,.43));     // eyes
-    q.head.add(part(.07,.1,.02,0xffffff,.15,.08,.43));
-    q.head.add(part(.04,.06,.02,0x1a1a1a,-.13,.07,.44));    // pupils
-    q.head.add(part(.04,.06,.02,0x1a1a1a,.13,.07,.44));
+  pig:()=>{const q=quadruped(0xf0a8a8,0xf0a8a8,.35,woolTex); // vanilla soft pink, patchy pixel hide
+    q.head.add(part(.24,.13,.09,0xe89c9c,0,-.07,.45));      // wide protruding snout
+    q.head.add(part(.05,.07,.02,0x6e3a42,-.085,-.07,.5,false,flatTex)); // nostrils at snout edges
+    q.head.add(part(.05,.07,.02,0x6e3a42,.085,-.07,.5,false,flatTex));
+    q.head.add(part(.07,.1,.02,0xffffff,-.15,.08,.43,false,flatTex));   // eyes: white outer...
+    q.head.add(part(.07,.1,.02,0xffffff,.15,.08,.43,false,flatTex));
+    q.head.add(part(.05,.1,.02,0x1a1a1a,-.1,.08,.435,false,flatTex));   // ...black pupil inner, like vanilla
+    q.head.add(part(.05,.1,.02,0x1a1a1a,.1,.08,.435,false,flatTex));
+    for(const[l]of q.limbs)l.add(part(.21,.08,.21,0x6b4646,0,-.315,0)); // dark hoof tips
     return q;},
-  sheep:()=>{const q=quadruped(0xd9d9d9,0xf2e3cf,.45);      // wool kept off pure white so daylight doesn't blow it out
-    q.head.add(part(.56,.35,.45,0xe6e6e6,0,.12,.03));       // wool head tuft
-    q.head.add(part(.07,.1,.02,0x1a1a1a,-.13,.05,.43));     // eyes
-    q.head.add(part(.07,.1,.02,0x1a1a1a,.13,.05,.43));
-    q.head.add(part(.1,.06,.02,0xd8a0a8,0,-.1,.43));        // nose
-    q.g.add(part(.78,.6,1.06,0xe2e2e2,0,.73,0));            // fluffy wool body
+  sheep:()=>{const q=quadruped(0xf6f6f6,0xc8a584,.45,woolTex); // bright white wool, tan face+legs like vanilla
+    q.head.add(part(.56,.35,.45,0xfafafa,0,.12,.03,false,woolTex)); // wool head tuft
+    q.head.add(part(.07,.1,.02,0x1a1a1a,-.13,.05,.43,false,flatTex)); // eyes
+    q.head.add(part(.07,.1,.02,0x1a1a1a,.13,.05,.43,false,flatTex));
+    q.head.add(part(.16,.09,.02,0xf2a8b8,0,-.1,.43,false,flatTex)); // clear pink nose, vanilla-style
+    q.g.add(part(.78,.6,1.06,0xf3f3f3,0,.73,0,false,woolTex)); // fluffy wool body
+    for(const[l]of q.limbs)l.add(part(.21,.1,.21,0x6e5a44,0,-.41,0)); // dark hooves
     return q;},
+  chicken:()=>{const g=new THREE.Group(),limbs=[];
+    const legH=.3,bodyY=legH+.18;
+    g.add(part(.42,.4,.54,0xf2f2f2,0,bodyY,-.02,false,hideTex));   // plump white body
+    const tail=part(.36,.3,.1,0xf2f2f2,0,bodyY+.18,-.33,false,hideTex);
+    tail.rotation.x=-.5;g.add(tail);                               // tail feathers cocked up
+    const head=new THREE.Group();head.position.set(0,bodyY+.2,.18); // neck pivot → tracks player
+    head.add(part(.26,.3,.24,0xf4f4f4,0,.06,.02,false,hideTex));   // head cube
+    head.add(part(.2,.08,.17,0xf0a200,0,0,.17,false,flatTex));     // upper beak (yellow)
+    head.add(part(.17,.06,.12,0xd98e00,0,-.07,.16,false,flatTex)); // lower beak
+    head.add(part(.1,.17,.22,0xd23030,0,.25,0,false,flatTex));     // comb / crest on top
+    head.add(part(.1,.12,.07,0xd23030,0,-.1,.12,false,flatTex));   // red wattle under the beak
+    head.add(part(.05,.11,.02,0x141414,-.135,.07,.09,false,flatTex)); // eyes on the sides
+    head.add(part(.05,.11,.02,0x141414,.135,.07,.09,false,flatTex));
+    g.add(head);
+    const lw=part(.05,.34,.42,0xececec,-.215,bodyY+.18,-.03,true,hideTex), // flat side wings,
+          rw=part(.05,.34,.42,0xececec,.215,bodyY+.18,-.03,true,hideTex);  // pivot at the shoulder
+    lw.rotation.z=-.08;rw.rotation.z=.08;                                  // folded flat at rest
+    g.add(lw,rw);
+    for(const[lx,s]of[[-.1,1],[.1,-1]]){                          // two orange legs + flat feet
+      const l=part(.07,legH,.07,0xe8a020,lx,legH,.03,true,flatTex);
+      l.add(part(.15,.04,.22,0xe8a020,0,-legH+.02,.04,false,flatTex));
+      g.add(l);limbs.push([l,s]);}
+    return{g,limbs,head,wings:[lw,rw]};},
   villager:()=>{const m=humanoid(0xc9a06c,0x7a5b3a,0x6b4f33,{nose:0xb9855e,arm:0x7a5b3a});
     m.head.add(part(.08,.08,.02,0x3a7d2c,-.12,.3,.26));     // green eyes
     m.head.add(part(.08,.08,.02,0x3a7d2c,.12,.3,.26));
@@ -710,45 +1016,55 @@ const builders={
     m.head.add(part(.5,.1,.5,0x3d7434,0,.45,0));            // darker scalp
     m.g.add(part(.22,.1,.32,0x16664f,0,.78,0,true));        // torn shirt hem
     return m;}};
-const HURT_RED=new THREE.Color(1,.15,.15);
+const HURT_RED=new THREE.Color(1,.15,.15),FIRE_C=new THREE.Color(1,.45,0);
 const mobs=[];
 class Mob{
   constructor(type,x,y,z,home){
     this.type=type;this.pos=new THREE.Vector3(x,y,z);
     this.vy=0;this.dir=Math.random()*Math.PI*2;this.moving=true;
     this.timer=0;this.phase=0;this.cool=0;this.grounded=false;this.home=home;
-    this.hp=20;this.dead=false;               // 5 punches at 4 dmg each
+    this.hp=type==='chicken'?12:20;           // chicken: dies in 3 hand punches (4 dmg each)
+    this.dead=false;
     this.bodyYaw=this.dir;this.headYaw=0;this.headPitch=0;
     this.panicT=0;this.repickT=0;this.hurtT=0;this.swing=0;this.dying=-1;
     this.kbx=0;this.kbz=0;                    // knockback velocity from being hit
+    this.eggT=300+Math.random()*300;         // lay an egg every 5-10 min (chicken only)
+    this.ambT=.5+Math.random()*3;            // first ambient voice within ~3s, staggered per mob
+    this.flap=0;this.flapSpd=0;               // wing-flap phase + eased flap magnitude
     const m=builders[type]();this.group=m.g;this.limbs=m.limbs;this.head=m.head;
+    this.wings=m.wings;
     this.group.traverse(o=>{if(o.material)o.userData.base=o.material.color.clone();});
     scene.add(this.group);}
   remove(){scene.remove(this.group);
     this.group.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});}
-  tint(on){this.group.traverse(o=>{if(o.material&&o.userData.base){
-    o.material.color.copy(o.userData.base);
-    if(on)o.material.color.lerp(HURT_RED,.65);   // blend toward red so even white wool shows it
-    o.material.emissive.setRGB(on?.25:0,0,0);}});} // touch of glow so it reads at night too
+  colorize(){ // unlit entity shading: base colour * day/night level, plus hurt/burn flashes
+    const L=mobLight,red=this.hurtT>0,fl=this.burning?this.flick||0:0;
+    this.group.traverse(o=>{if(o.material&&o.userData.base){
+      o.material.color.copy(o.userData.base).multiplyScalar(L);
+      if(red)o.material.color.lerp(HURT_RED,.65);  // solid red flash, reads even on white wool
+      if(fl)o.material.color.lerp(FIRE_C,fl*.6);}});}
   hit(d){this.hp-=d;
     S('hit',.5,SFX.hit);                     // punch impact, always
     const dying=this.hp<=0;                  // one voice per hit: hurt OR death, never both
-    if(this.type==='villager')play(dying?'villagerDeath':'villagerHit',.6);
-    else if(this.type==='zombie')play(dying?'zombieDeath':'zombieHurt',.6);
-    else if(this.type==='pig')play(dying?'pigDeath':'pig',.6);
-    else if(this.type==='sheep')play('sheep',.6); // pack has no sheep death; single baa
+    const pr=.9+Math.random()*.2;            // vanilla random pitch on every voice
+    if(this.type==='villager')play(dying?'villagerDeath':'villagerHit',.6,pr);
+    else if(this.type==='zombie')play(dying?'zombieDeath':'zombieHurt',.6,pr);
+    else if(this.type==='pig')play(dying?'pigDeath':'pig',.6,pr);
+    else if(this.type==='sheep')play('sheep',.6,pr); // pack has no sheep death; single baa
+    else if(this.type==='chicken')play(dying?'chicken':'chickenHurt',.6,pr); // cluck on death, squawk on hurt
     // Minecraft knockback: velocity burst away from the attacker + a small hop,
     // sliding back ~1 block while still facing the player (no teleport)
     const away=Math.atan2(this.pos.x-player.pos.x,this.pos.z-player.pos.z);
     this.kbx=Math.sin(away)*5.5;this.kbz=Math.cos(away)*5.5;
     this.vy=Math.max(this.vy,4.2);           // little jump, ~0.4 blocks like MC
-    this.hurtT=.5;this.tint(true);           // Minecraft hurt flash: solid red for half a second
+    this.hurtT=.5;                           // Minecraft hurt flash: solid red for half a second
     if(dying){this.dying=0;this.hurtT=99;}   // stay red while keeling over
     else if(this.type!=='zombie'){           // animals+villagers bolt; zombies keep coming at you
       this.dir=away;this.moving=true;
       this.panicT=4+Math.random()*2;}}
   update(dt){
     this.timer-=dt;this.cool-=dt;
+    this.colorize();
     if(this.kbx||this.kbz){                  // knockback slide: decays fast, stops at walls
       const fy=Math.floor(this.pos.y+.1);
       const nx=this.pos.x+this.kbx*dt,nz=this.pos.z+this.kbz*dt;
@@ -758,7 +1074,7 @@ class Mob{
          !solidAt(Math.floor(this.pos.x),fy+1,Math.floor(nz)))this.pos.z=nz;else this.kbz=0;
       const f=Math.max(0,1-dt*6);this.kbx*=f;this.kbz*=f;
       if(Math.abs(this.kbx)+Math.abs(this.kbz)<.05)this.kbx=this.kbz=0;}
-    if(this.hurtT>0&&(this.hurtT-=dt)<=0)this.tint(false);
+    if(this.hurtT>0)this.hurtT-=dt;          // colorize() reads this for the red flash
     if(this.dying>=0){                       // Minecraft death: keel over sideways, then poof
       this.dying+=dt;
       this.group.rotation.z=Math.min(1,this.dying*2.8)*(Math.PI/2);
@@ -775,24 +1091,41 @@ class Mob{
       return;}
         if(this.burning){
       this.burnT-=dt;
-      // flickering orange glow on the body
-      const fl=.5+Math.random()*.5;
-      this.group.traverse(o=>{if(o.material&&o.material.emissive)
-        o.material.emissive.setRGB(fl,.25*fl,0);});
+      // flickering orange tint on the body (applied in colorize)
+      this.flick=.5+Math.random()*.5;
      // flames rising off the body
       for(let i=0;i<3;i++)spawnFlame(
         this.pos.x+(Math.random()-.5)*.6,
         this.pos.y+Math.random()*1.8,
         this.pos.z+(Math.random()-.5)*.6); 
-      if(Math.random()<dt*4)noiseSnd({dur:.15,vol:.08,f0:2500,f1:600}); // crackle
+      if((this.fireSndT=(this.fireSndT||0)-dt)<=0){this.fireSndT=1.5; // re-fire before the ~2s clip ends so the crackle never gaps
+        const fd=this.pos.distanceTo(player.pos);
+        if(fd<22&&!play('fire',.5/(1+fd*.15)))noiseSnd({dur:.15,vol:.08,f0:2500,f1:600});}
       if(this.burnT<=0){this.dead=true;
         play('zombieDeath',.4/(1+this.pos.distanceTo(player.pos)*.15));
         for(let i=0;i<14;i++)spawnFlame(   // final burst
           this.pos.x+(Math.random()-.5)*.8,
           this.pos.y+Math.random()*1.8,
           this.pos.z+(Math.random()-.5)*.8);}}
-    if(Math.random()<dt*.07)mobSound(this.type,this.pos);
+    // entity cramming, like vanilla: bodies overlap -> push apart, never share a space.
+    // checked on horizontal distance so a mob can still walk under/over ledges near you
+    {const ex=this.pos.x-player.pos.x,ez=this.pos.z-player.pos.z;
+     const hd=Math.hypot(ex,ez),minD=.85;
+     if(hd<minD&&Math.abs(this.pos.y-player.pos.y)<1.7){
+       const nx2=hd>1e-4?ex/hd:Math.sin(this.bodyYaw),nz2=hd>1e-4?ez/hd:Math.cos(this.bodyYaw);
+       const push=(minD-hd);
+       const mx=this.pos.x+nx2*push*.6,mz=this.pos.z+nz2*push*.6; // mob takes most of the push
+       const fy2=Math.floor(this.pos.y+.1);
+       if(!solidAt(Math.floor(mx),fy2,Math.floor(mz))&&!solidAt(Math.floor(mx),fy2+1,Math.floor(mz))){
+         this.pos.x=mx;this.pos.z=mz;}
+       player.pos.x-=nx2*push*.4;player.pos.z-=nz2*push*.4;       // player gets nudged too
+       if(collidesP()){player.pos.x+=nx2*push*.4;player.pos.z+=nz2*push*.4;}}}
     const pd=this.pos.distanceTo(player.pos);
+    // ambient voice on a vanilla-style timer (~every 80+rand ticks), not pure chance:
+    // guarantees a mob speaks within seconds of you walking up, never minutes
+    if((this.ambT-=dt)<=0){
+      this.ambT=this.type==='chicken'?2.5+Math.random()*5:4+Math.random()*8;
+      mobSound(this.type,this.pos);}
     if(this.panicT>0){                       // just hit: bolt away from the player
       this.panicT-=dt;this.moving=true;
       if((this.repickT-=dt)<=0){this.repickT=.4;  // re-aim often so the flee path weaves
@@ -805,8 +1138,9 @@ class Mob{
     let sp=this.type==='zombie'?1.6:(this.panicT>0?2.7:1.3);
     if(this.type==='zombie'){
       if(pd<18){this.dir=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z);
-        this.moving=true;sp=2.5;
-        if(pd<1.5&&this.cool<=0){this.cool=1.1;damagePlayer(2);}}}
+        this.moving=pd>1.1;sp=2.5;             // stop at arm's reach instead of walking into you
+        if(pd<1.5&&this.cool<=0){this.cool=1.1;
+          damagePlayer(world.diff==='Easy'?1:world.diff==='Hard'?3:2);}}}
     if(this.type==='villager'&&this.home&&this.panicT<=0){
       const dx=this.pos.x-this.home.x,dz=this.pos.z-this.home.z;
       if(dx*dx+dz*dz>100){this.dir=Math.atan2(-dx,-dz);this.moving=true;}}
@@ -815,17 +1149,27 @@ class Mob{
       const fy=Math.floor(this.pos.y+.1),bx=Math.floor(nx),bz=Math.floor(nz);
       if(!solidAt(bx,fy,bz)&&!solidAt(bx,fy+1,bz)){this.pos.x=nx;this.pos.z=nz;}
       else if(solidAt(bx,fy,bz)&&!solidAt(bx,fy+1,bz)&&!solidAt(bx,fy+2,bz)){
-        if(this.grounded)this.vy=6.5;}
+        // 1-block step ahead: hop over it. 7.4 clears a full block (6.5 fell ~4% short).
+        // a startled chicken flutters up harder so it "flies" over walls instead of getting stuck.
+        if(this.grounded)this.vy=(this.type==='chicken'&&this.panicT>0)?9:7.4;
+        else if(this.type==='chicken'&&this.panicT>0&&this.vy<3)this.vy=6; // mid-air re-flap if still blocked
+        this.phase+=dt*(5+sp*4);}              // keep legs/wings animating against the wall
       else this.dir+=Math.PI*(.5+Math.random());
       this.phase+=dt*(5+sp*4);               // step cadence follows actual speed
       if(this.type==='zombie'&&this.grounded){       // shamble footsteps
         this.stepT=(this.stepT||0)-dt;
         if(this.stepT<=0){this.stepT=.45;
           const d=this.pos.distanceTo(player.pos);
-          if(d<16)play('zombieStep',.5/(1+d*.3));}}}
+          if(d<16)play('zombieStep',.5/(1+d*.3));}}
+      if(this.type==='chicken'&&this.grounded){      // light, quiet pitter-patter
+        this.stepT=(this.stepT||0)-dt;
+        if(this.stepT<=0){this.stepT=.3;
+          const d=this.pos.distanceTo(player.pos);
+          if(d<14)play('chickenStep',.15/(1+d*.3));}}}
     const feet=gB(Math.floor(this.pos.x),Math.floor(this.pos.y+.2),Math.floor(this.pos.z));
     if(feet===WATERB)this.vy=Math.min(this.vy+30*dt,1.5);
     else this.vy-=22*dt;
+    if(this.type==='chicken'&&this.vy<-1.4)this.vy=-1.4; // wings: drift down slowly, fall-immune
     this.pos.y+=this.vy*dt;this.grounded=false;
     const by=Math.floor(this.pos.y);
     if(this.vy<=0&&solidAt(Math.floor(this.pos.x),by,Math.floor(this.pos.z))){
@@ -837,6 +1181,21 @@ class Mob{
     const sw=Math.sin(this.phase)*.9*this.swing;
     for(const[l,s2]of this.limbs)
       l.rotation.x=(this.type==='zombie'&&l.position.y>1)?-Math.PI/2:sw*s2;
+    if(this.type==='chicken'&&this.wings){
+      // flap hard when off the ground (jumping or falling) or fleeing; flutter softly otherwise.
+      // wings rotate on Z and swing OUTWARD; magnitude oscillates 0..2*amp like vanilla (sin+1)*speed
+      const flapHard=!this.grounded||this.panicT>0;
+      this.flapSpd+=((flapHard?1:.12)-this.flapSpd)*Math.min(1,dt*9); // ease speed, no snap
+      this.flap+=dt*(flapHard?32:11);
+      const off=.08+(Math.sin(this.flap)+1)*.62*this.flapSpd; // .08 rest fold + oscillation
+      this.wings[1].rotation.z=off;this.wings[0].rotation.z=-off; // [0]=left(-x), [1]=right(+x)
+      if((this.eggT-=dt)<=0){this.eggT=300+Math.random()*300; // lay an egg every 5-10 min
+        if(this.grounded){
+          const d=this.pos.distanceTo(player.pos);
+          if(d<16)play('chickenEgg',.6/(1+d*.2),.8+Math.random()*.4);
+          for(let i=0;i<6;i++)spawnFlame(      // little white puff where the egg drops
+            this.pos.x+(Math.random()-.5)*.3,this.pos.y+.1,
+            this.pos.z+(Math.random()-.5)*.3,null,0xf2f0e4,true);}}}
     let dyaw=this.dir-this.bodyYaw;dyaw=Math.atan2(Math.sin(dyaw),Math.cos(dyaw));
     this.bodyYaw+=dyaw*Math.min(1,dt*(this.panicT>0||this.type==='zombie'?10:5)); // turn, don't snap
     let ty=0,tp=0;                           // head tracks the player when close, like LookAtPlayer
@@ -864,20 +1223,29 @@ function attack(){
   const m=mobTargeted();
   if(!m)return false;
   const now=performance.now();
-  if(now>=nextAttack){nextAttack=now+400;m.hit(4);}
+  if(now>=nextAttack){nextAttack=now+400;
+    const it=hotbar[sel];
+    m.hit(it&&it.b===WSWORD_I?8:4);}           // wooden sword: double punch damage
   return true;}                                // on cooldown: swing whiffs, no block dig behind
 
 // ================= MINING (hold left click, MC-style) =================
 // seconds to break by hand (~vanilla; stone-type shortened a bit since there are no tools)
-function hardFor(b){return(b===STONE||b===COBBLE)?3.5:(b===LOG||b===PLANK||isDoor(b))?3
-  :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:.75;}
+function hardFor(b){
+  let t=(b===STONE||b===COBBLE)?3.5:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
+    :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:.75;
+  const it=hotbar[sel],tb=it?it.b:0;           // right tool in hand = ~4x faster, like vanilla
+  if(tb===WAXE_I&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=4;
+  else if(tb===WPICK_I&&(b===STONE||b===COBBLE))t/=4;
+  else if(tb===WSHOVEL_I&&(b===DIRT||b===GRASS||b===SAND))t/=4;
+  else if(tb===WHOE_I&&b===LEAF)t=.1;
+  return t;}
 // what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters
 function dropFor(b){return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
   if(b===SAND)return{hit:'stepSand',dig:'digSand',col:0xdcd49a};
   if(b===STONE||b===COBBLE)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
-  if(b===LOG||b===PLANK||isDoor(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40};
+  if(b===LOG||b===PLANK||b===CTABLE||isDoor(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40};
   if(b===DIRT)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
   if(b===GLASS)return{hit:'stepStone',dig:'glassBreak',col:0xd6eef5};
   if(b===LEAF)return{hit:'stepGrass',dig:'digGrass',col:0x2e6b22};
@@ -904,9 +1272,9 @@ crackMesh.visible=false;scene.add(crackMesh);
 let mining=null,leftDown=false;
 function stopMining(){mining=null;crackMesh.visible=false;}
 function addDrop(b){
-  const it=hotbar.find(i=>i.b===b);
-  if(!it||it.count>=64)return;
-  it.count++;drawHotbar();
+  if(isCreative())return;                      // creative: blocks are infinite anyway
+  if(!addStack({b,count:1}))return;            // hotbar + inventory completely full: drop is lost
+  drawHotbar();
   play('pop',.5,.8+Math.random()*.4);}         // pickup blip with random pitch, like MC
 function updateMining(dt){
   if(!leftDown||!document.pointerLockElement){stopMining();return;}
@@ -915,17 +1283,19 @@ function updateMining(dt){
   if(!r||!r.hit){stopMining();return;}
   const[x,y,z]=r.hit,b=gB(x,y,z);
   if(!mining||mining.x!==x||mining.y!==y||mining.z!==z||mining.b!==b)
-    mining={x,y,z,b,t:0,need:hardFor(b),sndT:0}; // looked away: progress resets, like MC
+    mining={x,y,z,b,t:0,need:isCreative()?.12:hardFor(b),sndT:0}; // creative: near-instant break
   const m=matFor(b);
-  if((mining.sndT-=dt)<=0){mining.sndT=.25;
-    play(m.hit,.25,.5+Math.random()*.1);}      // quiet low-pitch taps while digging (vanilla "hit")
   mining.t+=dt;
+  if(mining.t<mining.need&&(mining.sndT-=dt)<=0){mining.sndT=.2;
+    play(m.hit,.25,.5);}                       // vanilla hit taps: 0.25 vol, 0.5 pitch, every 4 ticks
+                                               // ...but never on the break frame: the tap
+                                               // overlapping the break sound was an audible glitch
   crackMesh.visible=true;crackMesh.position.set(x+.5,y+.5,z+.5);
   crackMat.map=crackTex[Math.min(9,(mining.t/mining.need*10)|0)];
   if(mining.t>=mining.need){
     if(isDoor(b))breakDoor(x,y,z);else setBlock(x,y,z,AIR);
     flowWater(x,y,z);flush();
-    S(m.dig,.7,SFX.dig);                       // proper break sound
+    if(!play(m.dig,.9,.8))SFX.dig(); // break sound: vanilla plays it at fixed 0.8 pitch, full volume
     for(let i=0;i<10;i++)spawnFlame(           // block debris burst
       x+.15+Math.random()*.7,y+.15+Math.random()*.7,z+.15+Math.random()*.7,null,m.col,true);
     const d=dropFor(b);if(d)addDrop(d);
@@ -934,8 +1304,9 @@ function spawnAnimal(){
   const a=Math.random()*Math.PI*2,d2=14+Math.random()*14;
   const x=Math.floor(player.pos.x+Math.sin(a)*d2),z=Math.floor(player.pos.z+Math.cos(a)*d2);
   const h=groundH(x,z);
-  if(h>WATER&&gB(x,h,z)===GRASS)
-    mobs.push(new Mob(Math.random()<.5?'pig':'sheep',x+.5,h+1,z+.5));}
+  if(h>WATER&&gB(x,h,z)===GRASS){
+    const r=Math.random(),type=r<.4?'pig':r<.7?'sheep':'chicken';
+    mobs.push(new Mob(type,x+.5,h+1,z+.5));}}
 
 function spawnZombie(){
   const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
@@ -979,52 +1350,436 @@ function updateMobs(dt){
     const v=villagerSpawns.pop();
     const x=Math.floor(v.x),z=Math.floor(v.z),h=groundH(x,z);
     if(h>WATER)mobs.push(new Mob('villager',x+.5,h+1.2,z+.5,{x:v.hx,z:v.hz}));}
-  if(mobs.filter(m=>m.type==='pig'||m.type==='sheep').length<10&&Math.random()<dt*.3)
+  if(mobs.filter(m=>m.type==='pig'||m.type==='sheep'||m.type==='chicken').length<12&&Math.random()<dt*.3)
     spawnAnimal();
 
-  if(daylight<.3&&mobs.filter(m=>m.type==='zombie').length<8&&Math.random()<dt*.4)spawnZombie();
+  if(daylight<.3&&world.diff!=='Peaceful'&&
+     mobs.filter(m=>m.type==='zombie').length<8&&Math.random()<dt*.4)spawnZombie();
   for(let i=mobs.length-1;i>=0;i--){const m=mobs[i];
-    if(m.type==='zombie'&&daylight>.6&&!m.burning){m.burning=true;m.burnT=2.5;}
+    if(m.type==='zombie'&&daylight>.6&&!m.burning){m.burning=true;m.burnT=5;
+      play('fireIgnite',.4/(1+m.pos.distanceTo(player.pos)*.15));}
         if(m.dead||m.pos.y<-10||m.pos.distanceTo(player.pos)>120){
       m.remove();mobs.splice(i,1);continue;}
     m.update(dt);}}
 
 // ================= HOTBAR + MENU + LOOP =================
-const hotbar=[
-  {b:GRASS,n:'Grass',c:'#4f9442',count:1},{b:DIRT,n:'Dirt',c:'#8a5a32',count:1},
-  {b:STONE,n:'Stone',c:'#8b8b8b',count:1},{b:SAND,n:'Sand',c:'#dcd49a',count:1},
-  {b:LOG,n:'Wood',c:'#6b5230',count:1},{b:LEAF,n:'Leaves',c:'#2e6b22',count:1},
-  {b:PLANK,n:'Planks',c:'#a8824e',count:1},{b:COBBLE,n:'Cobble',c:'#9a9a9a',count:1}];
+// item stacks are {b,count} (max 64); a slot holds a stack or null, like vanilla
+const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[LOG]:'Oak Log',
+  [LEAF]:'Oak Leaves',[PLANK]:'Oak Planks',[COBBLE]:'Cobblestone',[GLASS]:'Glass',
+  [CTABLE]:'Crafting Table',
+  [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
+  [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
+const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
+const hotbar=DEFAULT_HOTBAR.map(b=>({b,count:1}));hotbar.push(null); // 9 slots, like vanilla
+let invOpen=false;
+// isometric cube icons drawn from the real texture atlas, like MC inventory items.
+// MC renders items at a 30 deg camera: vertical edges project ~1.22x the top
+// diamond's half-width, so the cube is taller than wide - not a squashed square.
+function makeBlockIcon(b){
+  const N=64,u=1.7,v=1.22*u,cx=N/2,cy=1;
+  const c=document.createElement('canvas');c.width=c.height=N;
+  const x=c.getContext('2d');x.imageSmoothingEnabled=false;
+  const face=(f,m,sh)=>{
+    const t=tileFor(b,f),sx=(t%AT)*TS,sy=((t/AT)|0)*TS;
+    x.setTransform(...m);
+    x.drawImage(atlasC,sx,sy,TS,TS,0,0,TS,TS);
+    if(sh){x.fillStyle='rgba(0,0,30,'+sh+')';x.fillRect(0,0,TS,TS);}
+    x.setTransform(1,0,0,1,0,0);};
+  face(3,[u,.5*u,-u,.5*u,cx,cy],0);          // top face, full brightness
+  face(0,[u,.5*u,0,v,cx-16*u,cy+8*u],.22);   // left side, lightly shaded
+  face(4,[u,-.5*u,0,v,cx,cy+16*u],.4);       // right side, darkest
+  return c.toDataURL();}
+// ---- 2D item sprites, 16x16 rows of palette chars ('.' = transparent) ----
+// all six are the exact vanilla item textures (sampled by icon_gen.py from
+// the 1.21.4 game assets, textures/item/*.png)
+const ITEM_PAL={a:'#493615',b:'#281e0b',c:'#896727',d:'#684e1e',e:'#372910',f:'#755821',g:'#866526',h:'#20180a',i:'#594319',j:'#473614',k:'#886626',l:'#6a501e',m:'#6b511f',n:'#896726'};
+const ITEM_ART={
+  [STICK_I]:['................','................','.............ab.','............acb.','...........acb..','..........adb...','.........acb....','........adb.....','.......acb......','......adb.......','.....acb........','....adb.........','...acb..........','..acb...........','..bb............','................'],
+  [WSWORD_I]:['.............eee','............efgh','...........efgfh','..........efgfh.','.........efgfh..','........efgfh...','..ee...eigfh....','..eje.eigih.....','...eihifih......','...eiijih.......','....ejeh........','...adheeh.......','..acb.hheh......','eedb....hh......','ejh.............','hhh.............'],
+  [WPICK_I]:['................','................','......eeeee.....','.....ekfllfeal..','......ehhhllkb..','..........aflh..','.........alblfh.','........akb.hlh.','.......alb..hlh.','......akb...hfh.','.....alb....hkh.','....akb......h..','...alb..........','..akb...........','..bb............','................'],
+  [WAXE_I]:['................','.........ee.....','........egge....','.......egmfe....','......egmmmad...','......hgfmimb...','.......hhamimh..','........adbmmh..','.......acb.hh...','......adb.......','.....adb........','....acb.........','...adb..........','..acb...........','..bb............','................'],
+  [WSHOVEL_I]:['................','................','...........eeh..','..........eggmh.','.........egfmgh.','........egfmfgh.','.........amfgh..','........acbgh...','.......acb.h....','......adb.......','.....acb........','....adb.........','..aacb..........','..acb...........','...bb...........','................'],
+  [WHOE_I]:['................','.......eee......','......enffe.....','.......hhmfead..','.........hmmnh..','..........afmh..','.........adhh...','........anh.....','.......adh......','......anh.......','.....adh........','....anh.........','...adh..........','..anh...........','..hh............','................']};
+function makeItemIcon(id){
+  const rows=ITEM_ART[id],c=document.createElement('canvas');c.width=c.height=16;
+  const g=c.getContext('2d');
+  rows.forEach((r,y)=>{for(let x=0;x<16;x++)
+    if(r[x]!=='.'){g.fillStyle=ITEM_PAL[r[x]];g.fillRect(x,y,1,1);}});
+  return c.toDataURL();}
+const ICONS={};
+const iconFor=b=>ICONS[b]||(ICONS[b]=ITEM_ART[b]?makeItemIcon(b):makeBlockIcon(b));
 let sel=0;
 function drawHotbar(){
   const el=document.getElementById('hotbar');el.innerHTML='';
   hotbar.forEach((it,i)=>{const d=document.createElement('div');
     d.className='slot'+(i===sel?' sel':'');
-    if(it.count>0)                            // empty slot stays truly empty, like MC
-      d.innerHTML='<div class="sw" style="background:'+it.c+'"></div>'+
-        (it.count>1?'<span class="cnt">'+it.count+'</span>':'');
-    el.appendChild(d);});}
+    if(it&&(it.count>0||isCreative()))         // creative: always stocked, no counts shown
+      d.innerHTML='<img class="sw" src="'+iconFor(it.b)+'">'+
+        (it.count>1&&!isCreative()?'<span class="cnt">'+it.count+'</span>':'');
+    el.appendChild(d);});
+  if(invOpen)refreshInv();}                    // keep the inventory screen in sync
 let nameT=0;
 function showItemName(){                      // vanilla: selected item name flashes above the hotbar
   const n=document.getElementById('itemname');
-  n.textContent=hotbar[sel].n;n.style.opacity=1;
+  const it=hotbar[sel];
+  n.textContent=it?BNAME[it.b]||'Block':'';n.style.opacity=it?1:0;
   clearTimeout(nameT);nameT=setTimeout(()=>n.style.opacity=0,1300);}
 drawHotbar();
-document.getElementById('bSingle').onclick=()=>{
-  menuEl.style.display='none';infoEl.style.display='block';audio().resume();};
-document.getElementById('bMulti').onclick=()=>{
-  document.getElementById('mMsg').textContent='Multiplayer is not available in this single-file demo.';};
-document.getElementById('bQuit').onclick=()=>{
-  document.getElementById('mMsg').textContent='Just close the tab to quit :)';};
+// ================= INVENTORY SCREEN (press E) =================
+const invSlots=Array(27).fill(null),craftSlots=Array(4).fill(null),tableSlots=Array(9).fill(null);
+let craftOut=null,heldStack=null,invMx=innerWidth/2,invMy=innerHeight/2;
+let invMode='inv';                         // 'inv' = 2x2 personal grid, 'table' = 3x3 crafting table
+const invEl=document.getElementById('inv'),heldEl=document.getElementById('heldItem');
+function resetInv(){
+  hotbar.length=0;
+  for(const b of DEFAULT_HOTBAR)hotbar.push({b,count:1});
+  hotbar.push(null);
+  invSlots.fill(null);craftSlots.fill(null);tableSlots.fill(null);craftOut=null;heldStack=null;
+  sel=0;drawHotbar();}
+// ---- ghost icons: dark silhouettes in the empty armor/offhand slots, like vanilla ----
+function ghostIcon(rows){
+  const s=3,c=document.createElement('canvas');c.width=c.height=rows.length*s;
+  const x=c.getContext('2d');x.fillStyle='#474747';
+  rows.forEach((r,j)=>{for(let i=0;i<r.length;i++)if(r[i]==='X')x.fillRect(i*s,j*s,s,s);});
+  return c;}
+const GHOST={
+  helmet:['............','...XXXXXX...','..X......X..','.X........X.','.X........X.','.X.XX..XX.X.',
+    '.X........X.','.X........X.','..X......X..','...X....X...','....XXXX....','............'],
+  chest:['..........','.XX....XX.','.XXX..XXX.','.XXXXXXXX.','.XXXXXXXX.','..XXXXXX..','..XXXXXX..','..XXXXXX..','..XXXXXX..','..........'],
+  legs:['..........','..XXXXXX..','..XXXXXX..','..XXXXXX..','..XX..XX..','..XX..XX..','..XX..XX..','..XX..XX..','..XX..XX..','..........'],
+  boots:['..........','..........','..........','..XX..XX..','..XX..XX..','..XX..XX..','.XXX..XXX.','.XXX..XXX.','..........','..........'],
+  shield:['..........','.XXXXXXXX.','.XXXXXXXX.','.XXXXXXXX.','.XXXXXXXX.','..XXXXXX..','...XXXX...','....XX....','..........','..........']};
+function mkSlot(list,idx,ghost){
+  const d=document.createElement('div');d.className='islot';
+  d.dataset.list=list;d.dataset.idx=idx;
+  if(ghost)d.appendChild(ghostIcon(GHOST[ghost]));
+  d.addEventListener('mousedown',e=>{e.preventDefault();e.stopPropagation();slotClick(list,idx,e);});
+  return d;}
+{const ac=document.getElementById('armorCol');
+ ['helmet','chest','legs','boots'].forEach((g,i)=>ac.appendChild(mkSlot('armor',i,g)));
+ document.getElementById('offCol').appendChild(mkSlot('off',0,'shield'));
+ const cg=document.getElementById('craftGrid');
+ for(let i=0;i<4;i++)cg.appendChild(mkSlot('craft',i));
+ document.getElementById('craftOutWrap').appendChild(mkSlot('out',0));
+ const tg=document.getElementById('tableGrid');
+ for(let i=0;i<9;i++)tg.appendChild(mkSlot('tbl',i));
+ document.getElementById('tableOutWrap').appendChild(mkSlot('out',1));
+ const ig=document.getElementById('invGrid');
+ for(let i=0;i<27;i++)ig.appendChild(mkSlot('inv',i));
+ const hr=document.getElementById('invHotRow');
+ for(let i=0;i<9;i++)hr.appendChild(mkSlot('hot',i));}
+invEl.addEventListener('contextmenu',e=>e.preventDefault());
+const getSlot=(l,i)=>l==='inv'?invSlots[i]:l==='hot'?hotbar[i]:l==='craft'?craftSlots[i]:l==='tbl'?tableSlots[i]:l==='out'?craftOut:null;
+const setSlot=(l,i,v)=>{if(l==='inv')invSlots[i]=v;else if(l==='hot')hotbar[i]=v;else if(l==='craft')craftSlots[i]=v;else if(l==='tbl')tableSlots[i]=v;};
+const stack=(b,count)=>({b,count});
+// merge a stack into containers (top up matching stacks first, then empty slots);
+// mutates it.count down and returns true once fully absorbed
+function mergeInto(arrs,it){
+  for(const a of arrs)for(const s of a)
+    if(s&&s.b===it.b&&s.count<stackMax(s.b)){
+      const n=Math.min(stackMax(s.b)-s.count,it.count);s.count+=n;it.count-=n;
+      if(!it.count)return true;}
+  for(const a of arrs)for(let i=0;i<a.length;i++)
+    if(!a[i]){a[i]=stack(it.b,it.count);it.count=0;return true;}
+  return false;}
+const addStack=it=>mergeInto([hotbar,invSlots],it);
+// ---- shaped crafting recipes, exact vanilla patterns ----
+// P=planks S=stick L=log, '.'=empty. A recipe matches when the occupied
+// bounding box of the grid equals the pattern (or its horizontal mirror, like
+// vanilla). 3-wide/3-tall patterns can only ever fit the crafting table's 3x3
+// grid, so tools genuinely require a crafting table - just like the real game.
+const RKEY={P:PLANK,S:STICK_I,L:LOG};
+const RECIPES=[
+  [['L'],PLANK,4],                  // 1 log -> 4 planks
+  [['P','P'],STICK_I,4],            // 2 planks stacked -> 4 sticks
+  [['PP','PP'],CTABLE,1],           // 2x2 planks -> crafting table
+  [['P','P','S'],WSWORD_I,1],       // vanilla wooden_sword
+  [['PPP','.S.','.S.'],WPICK_I,1],  // vanilla wooden_pickaxe
+  [['PP','PS','.S'],WAXE_I,1],      // vanilla wooden_axe
+  [['P','S','S'],WSHOVEL_I,1],      // vanilla wooden_shovel
+  [['PP','.S','.S'],WHOE_I,1]];     // vanilla wooden_hoe
+function matchCraft(slots,w){       // w = grid width (2 or 3), slots is w*w long
+  let x0=w,x1=-1,y0=w,y1=-1;
+  for(let y=0;y<w;y++)for(let x=0;x<w;x++)if(slots[y*w+x]){
+    x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);}
+  if(x1<0)return null;              // empty grid
+  const bw=x1-x0+1,bh=y1-y0+1;
+  for(const[pat,b,n]of RECIPES){
+    if(pat.length!==bh||pat[0].length!==bw)continue;
+    for(const mir of[0,1]){
+      let ok=true;
+      for(let y=0;y<bh&&ok;y++)for(let x=0;x<bw&&ok;x++){
+        const ch=pat[y][mir?bw-1-x:x],s=slots[(y0+y)*w+(x0+x)];
+        if((s?s.b:0)!==(ch==='.'?0:RKEY[ch]))ok=false;}
+      if(ok)return stack(b,n);}}
+  return null;}
+function updateCraft(){
+  craftOut=invMode==='table'?matchCraft(tableSlots,3):matchCraft(craftSlots,2);}
+function slotClick(list,idx,e){
+  if(list==='armor'||list==='off')return;          // cosmetic slots: no armor items yet
+  if(list==='out'){                                // take the crafting result
+    if(!craftOut)return;
+    if(!heldStack)heldStack=stack(craftOut.b,craftOut.count);
+    else if(heldStack.b===craftOut.b&&heldStack.count+craftOut.count<=stackMax(craftOut.b))heldStack.count+=craftOut.count;
+    else return;
+    const grid=invMode==='table'?tableSlots:craftSlots;
+    grid.forEach((s,i)=>{if(s&&--s.count<=0)grid[i]=null;}); // consume ingredients
+    updateCraft();play('uiClick',.3);drawHotbar();return;}
+  const it=getSlot(list,idx);
+  if(e.button===2){                                // right click: place one / take half
+    if(heldStack){
+      if(!it)setSlot(list,idx,stack(heldStack.b,1));
+      else if(it.b===heldStack.b&&it.count<stackMax(it.b))it.count++;
+      else return;
+      if(--heldStack.count<=0)heldStack=null;}
+    else if(it){
+      const take=Math.ceil(it.count/2);
+      heldStack=stack(it.b,take);
+      if((it.count-=take)<=0)setSlot(list,idx,null);}
+    else return;}
+  else if(e.shiftKey&&!heldStack&&it){             // shift-click: quick move across containers
+    mergeInto(list==='hot'?[invSlots]:list==='inv'?[hotbar]:[hotbar,invSlots],it);
+    if(it.count<=0)setSlot(list,idx,null);}
+  else if(e.button===0){
+    if(heldStack&&it&&it.b===heldStack.b){         // drop the held stack onto a matching one
+      const n=Math.min(stackMax(it.b)-it.count,heldStack.count);
+      it.count+=n;heldStack.count-=n;
+      if(heldStack.count<=0)heldStack=null;}
+    else{setSlot(list,idx,heldStack);heldStack=it;}}  // pick up / put down / swap
+  else return;
+  if(list==='craft'||list==='tbl')updateCraft();
+  play('uiClick',.3);
+  drawHotbar();}                                   // redraws HUD + inventory screen
+function slotHTML(it){
+  return it?'<img src="'+iconFor(it.b)+'">'+(it.count>1?'<span class="cnt">'+it.count+'</span>':''):'';}
+function refreshInv(){
+  invEl.querySelectorAll('.islot').forEach(d=>{
+    const l=d.dataset.list;if(l==='armor'||l==='off')return;
+    const it=getSlot(l,+d.dataset.idx);
+    d.innerHTML=slotHTML(it);
+    d.title=it?BNAME[it.b]||'Block':'';});
+  heldEl.style.display=heldStack?'block':'none';
+  if(heldStack)heldEl.innerHTML=slotHTML(heldStack);}
+addEventListener('mousemove',e=>{invMx=e.clientX;invMy=e.clientY;
+  if(invOpen){heldEl.style.left=(invMx-22)+'px';heldEl.style.top=(invMy-22)+'px';}});
+function openInv(mode){
+  if(invOpen)return;
+  invOpen=true;invMode=mode==='table'?'table':'inv';
+  document.getElementById('invTop').style.display=invMode==='inv'?'flex':'none';
+  document.getElementById('tableTop').style.display=invMode==='table'?'block':'none';
+  if(document.pointerLockElement)document.exitPointerLock();
+  for(const k in keys)keys[k]=false;               // stop walking while the screen is up
+  leftDown=false;stopMining();
+  infoEl.style.display='none';
+  updateCraft();invEl.classList.add('show');
+  fitInv();
+  drawHotbar();play('uiClick',.4);}
+// vanilla-style auto GUI scale: grow the panel to fill most of the screen,
+// never shrink below its natural size on small windows
+function fitInv(){
+  if(!invOpen)return;
+  const p=document.getElementById('invPanel');     // offsetWidth ignores the transform
+  const s=Math.max(1,Math.min(innerWidth*.9/p.offsetWidth,innerHeight*.85/p.offsetHeight,2.6));
+  p.style.transform='scale('+s+')';
+  heldEl.style.transform='scale('+s+')';}          // cursor stack matches the slot size
+addEventListener('resize',fitInv);
+function closeInv(){
+  if(!invOpen)return;
+  invOpen=false;invEl.classList.remove('show');
+  if(heldStack){addStack(heldStack);heldStack=null;}   // vanilla hands leftovers back
+  craftSlots.forEach((s,i)=>{if(s){addStack(s);craftSlots[i]=null;}});
+  tableSlots.forEach((s,i)=>{if(s){addStack(s);tableSlots[i]=null;}});
+  craftOut=null;drawHotbar();play('uiClick',.4);
+  if(inGame)renderer.domElement.requestPointerLock();}
+const toggleInv=()=>invOpen?closeInv():openInv();
+// ---- live player preview: the game's own humanoid rig in Steve colours ----
+const pvScene=new THREE.Scene();
+const steve=humanoid('#c68a64','#0fa9a9','#3d4aaa',{arm:'#0fa9a9'});
+{const h=steve.head;                                    // head box is .5, so one skin pixel = .0625
+ // Steve hair: cap on top with a single pixel-row fringe; longer down the sides and back
+ h.add(part(.56,.13,.56,'#3a2a1a',0,.47,0));            // cap + fringe row
+ h.add(part(.03,.26,.56,'#3a2a1a',-.265,.34,0));        // left side hair
+ h.add(part(.03,.26,.56,'#3a2a1a',.265,.34,0));         // right side hair
+ h.add(part(.56,.26,.03,'#3a2a1a',0,.34,-.265));        // back
+ for(const s of[-1,1]){
+   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.252)); // eye whites (outer)
+   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.252));}// pupils (inner, nose between)
+ h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.252));        // nose
+ h.add(part(.19,.07,.03,'#6b4533',0,.035,.252));}        // mouth/beard patch
+pvScene.add(steve.g);
+const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
+pvCam.position.set(0,1.0,3.6);pvCam.lookAt(0,.95,0);
+const pvR=new THREE.WebGLRenderer({antialias:false});
+pvR.setPixelRatio(Math.min(Math.max(devicePixelRatio,2.5),3)); // stays crisp when the panel scales up
+pvR.setSize(128,192);pvR.setClearColor(0x000000,1);
+document.getElementById('pview').appendChild(pvR.domElement);
+function updateInvPreview(){                     // model tracks the cursor, like vanilla
+  const r=pvR.domElement.getBoundingClientRect();
+  const dx=invMx-(r.left+r.width/2),dy=invMy-(r.top+r.height*.28);
+  steve.g.rotation.y=Math.atan2(dx,400);
+  steve.head.rotation.y=Math.atan2(dx,400)*.6;   // head turns a touch further than the body
+  steve.head.rotation.x=THREE.MathUtils.clamp(Math.atan2(dy,300),-.5,.6);
+  pvR.render(pvScene,pvCam);}
+// ================= WORLD MENUS (Select / Create / Generate) =================
+const $=id=>document.getElementById(id);
+const selWorldEl=$('selWorld'),createEl=$('createWorld'),loadingEl=$('loading');
+const uiClick=()=>{if(!play('uiClick',.55))tone({type:'square',f0:820,f1:760,dur:.05,vol:.18});};
+document.querySelectorAll('.mbtn').forEach(b=>b.addEventListener('click',uiClick));
+// saved worlds: metadata only — terrain regenerates deterministically from the seed
+let worlds=[];try{worlds=JSON.parse(localStorage.getItem('mineclone_worlds')||'[]')}catch(e){}
+const saveWorlds=()=>{try{localStorage.setItem('mineclone_worlds',JSON.stringify(worlds))}catch(e){}};
+let selIdx=-1,curWorld=null;
+function showScreen(el){                      // null hides everything (in-game)
+  // overflow:hidden still allows programmatic scroll (e.g. focusing an input
+  // scrolls it into view) — pin the page back to the top on every screen change
+  scrollTo(0,0);document.documentElement.scrollTop=document.body.scrollTop=0;
+  menuEl.style.display=el===menuEl?'flex':'none';
+  for(const s of[selWorldEl,createEl,loadingEl]){
+    s.classList.remove('show');
+    if(s===el){void s.offsetWidth;s.classList.add('show');}}} // retrigger slide-in anim
+function fmtDate(t){const d=new Date(t);
+  return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+function renderWorlds(){
+  const el=$('worldList');el.innerHTML='';
+  if(!worlds.length)
+    el.innerHTML='<div class="wempty">No worlds yet.<br><br>Click "Create New World" to get started!</div>';
+  worlds.forEach((w,i)=>{
+    const d=document.createElement('div');
+    d.className='wrow'+(i===selIdx?' sel':'');
+    const wn=document.createElement('div');wn.className='wn';wn.textContent=w.name;
+    const wi=document.createElement('div');wi.className='wi';
+    wi.textContent=fmtDate(w.lastPlayed||w.created)+' · '+w.mode+
+      (w.mode!=='Hardcore'?' · '+w.diff:'')+' · Seed: '+w.seed;
+    d.append(wn,wi);
+    d.onclick=()=>{uiClick();selIdx=i;renderWorlds();};
+    d.ondblclick=()=>playWorld(w);
+    el.appendChild(d);});
+  $('bPlayWorld').disabled=selIdx<0;
+  const del=$('bDeleteWorld');del.disabled=selIdx<0;del.textContent='Delete';}
+// ---- Create New World form ----
+const GAME_MODES=[
+  ['Survival','Search for resources, build, and survive the night'],
+  ['Hardcore','Survival locked to Hard difficulty. One life only!'],
+  ['Creative','Unlimited blocks, instant mining, and no damage']];
+const DIFFS=[
+  ['Peaceful','No zombies spawn — explore and build in peace'],
+  ['Easy','Zombies spawn at night but deal reduced damage'],
+  ['Normal','Zombies spawn at night and deal standard damage'],
+  ['Hard','Zombies hit hard — good luck out there']];
+let gmI=0,diffI=2;
+function refreshCreateUI(){
+  const hardcore=GAME_MODES[gmI][0]==='Hardcore';
+  if(hardcore)diffI=3;
+  $('bGameMode').textContent='Game Mode: '+GAME_MODES[gmI][0];
+  $('gmHint').textContent=GAME_MODES[gmI][1];
+  $('bDifficulty').textContent='Difficulty: '+DIFFS[diffI][0]+(hardcore?' (locked)':'');
+  $('bDifficulty').disabled=hardcore;
+  $('diffHint').textContent=DIFFS[diffI][1];}
+function defaultName(){
+  let n='New World',i=1;
+  while(worlds.some(w=>w.name===n))n='New World ('+(i++)+')';
+  return n;}
+function seedFrom(s){                          // numeric seeds pass through, text is hashed
+  s=String(s).trim();
+  if(!s)return(Math.random()*1e9)|0;
+  if(/^-?\d+$/.test(s))return parseInt(s,10)|0;
+  let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(h,31)+s.charCodeAt(i))|0;
+  return h;}
+$('bSingle').onclick=()=>{selIdx=worlds.length?0:-1;renderWorlds();showScreen(selWorldEl);};
+$('bMulti').onclick=()=>$('mMsg').textContent='Multiplayer is not available in this single-file demo.';
+$('bQuit').onclick=()=>$('mMsg').textContent='Just close the tab to quit :)';
+$('bCancelSel').onclick=()=>showScreen(menuEl);
+$('bCreateNew').onclick=()=>{
+  $('wName').value=defaultName();$('wSeed').value='';gmI=0;diffI=2;
+  $('saveHint').textContent='Will be saved in: '+$('wName').value;
+  refreshCreateUI();showScreen(createEl);
+  setTimeout(()=>{const n=$('wName');n.focus({preventScroll:true});n.select();
+    scrollTo(0,0);},50);};
+$('bCancelCreate').onclick=()=>{selIdx=-1;renderWorlds();showScreen(selWorldEl);};
+$('bGameMode').onclick=()=>{gmI=(gmI+1)%GAME_MODES.length;refreshCreateUI();};
+$('bDifficulty').onclick=()=>{diffI=(diffI+1)%DIFFS.length;refreshCreateUI();};
+$('wName').oninput=()=>
+  $('saveHint').textContent='Will be saved in: '+($('wName').value.trim()||'New World');
+$('bPlayWorld').onclick=()=>{if(selIdx>=0)playWorld(worlds[selIdx]);};
+$('bDeleteWorld').onclick=function(){            // two-step delete, like MC's confirm
+  if(selIdx<0)return;
+  if(this.textContent!=='Are you sure?'){this.textContent='Are you sure?';return;}
+  worlds.splice(selIdx,1);saveWorlds();selIdx=-1;renderWorlds();};
+$('bDoCreate').onclick=()=>{
+  const w={id:Date.now(),name:$('wName').value.trim()||'New World',
+    seed:seedFrom($('wSeed').value),mode:GAME_MODES[gmI][0],diff:DIFFS[diffI][0],
+    created:Date.now(),lastPlayed:0};
+  worlds.unshift(w);saveWorlds();playWorld(w);};
+for(const id of['wName','wSeed'])              // Enter in either field = create
+  $(id).addEventListener('keydown',e=>{if(e.key==='Enter')$('bDoCreate').click();});
+addEventListener('keydown',e=>{                // Esc steps back through the menus  
+  if(e.code!=='Escape'||inGame)return;
+  if(createEl.classList.contains('show'))$('bCancelCreate').click();
+  else if(selWorldEl.classList.contains('show'))$('bCancelSel').click();});
+// ---- world generation screen: real chunk pre-gen drives the progress bar ----
+const TIPS=['Tip: Watch out for zombies at night!','Tip: Hold left click to mine blocks',
+  'Tip: Right click places the selected block','Tip: Mine blocks to collect more of them',
+  'Tip: Press 1-8 or scroll to switch blocks','Tip: Middle click picks the block you aim at',
+  'Tip: Villages spawn villagers — say hi!','Tip: Hold Shift while walking to sprint',
+  'Tip: Press E and craft a log into 4 planks','Tip: 2 planks stacked in the crafting grid make 4 sticks',
+  'Tip: 4 planks in a square craft a crafting table',
+  'Tip: Right-click a placed crafting table to craft tools in its 3x3 grid',
+  'Tip: The right tool mines its blocks much faster'];
+const GEN_STAGES=[[0,'Building terrain'],[40,'Carving lakes'],[58,'Growing trees'],
+  [74,'Spawning villages'],[88,'Preparing spawn area']];
+function playWorld(w){
+  curWorld=w;
+  world.name=w.name;world.mode=w.mode;world.diff=w.diff;
+  $('loadTitle').textContent=w.lastPlayed?'Loading world':'Generating world';
+  $('loadTip').textContent=TIPS[(Math.random()*TIPS.length)|0];
+  $('loadStage').textContent=GEN_STAGES[0][1];
+  $('pfill').style.width='4%';$('loadPct').textContent='4%';
+  showScreen(loadingEl);
+  // let the loading screen paint before the heavy synchronous terrain pass
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    resetWorld(w.seed);
+    resetInv();
+    const pcx=Math.floor(player.pos.x/CH),pcz=Math.floor(player.pos.z/CH),jobs=[];
+    for(let r=0;r<=RENDER;r++)                  // mesh the spawn area ring by ring
+      for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++)
+        if(Math.max(Math.abs(dx),Math.abs(dz))===r)jobs.push([pcx+dx,pcz+dz]);
+    const total=jobs.length;
+    (function step(){
+      const t0=performance.now();
+      while(jobs.length&&performance.now()-t0<14){
+        const[cx,cz]=jobs.shift();
+        decorate(cx,cz);buildChunkMesh(getChunk(cx,cz));}
+      const pct=Math.round(30+70*(total-jobs.length)/total);
+      $('pfill').style.width=pct+'%';$('loadPct').textContent=pct+'%';
+      $('loadStage').textContent=GEN_STAGES.filter(s=>s[0]<=pct).pop()[1];
+      if(jobs.length)requestAnimationFrame(step);
+      else setTimeout(enterGame,400);})();}));}
+function enterGame(){
+  curWorld.lastPlayed=Date.now();saveWorlds();
+  inGame=true;stopMenuMusic();
+  showScreen(null);
+  infoEl.style.display='block';
+  audio().resume();}
+function hardcoreDeath(){                       // hardcore: death deletes the world
+  player.hp=20;inGame=false;
+  if(invOpen)closeInv();
+  if(document.pointerLockElement)document.exitPointerLock();
+  if(curWorld){worlds=worlds.filter(w=>w.id!==curWorld.id);saveWorlds();curWorld=null;}
+  infoEl.style.display='none';
+  showScreen(menuEl);
+  $('mMsg').textContent='You died! Hardcore worlds are lost forever...';
+  startMenuMusic();}
 const clock=new THREE.Clock();
 function tick(){
   requestAnimationFrame(tick);
   const dt=Math.min(clock.getDelta(),.05);
-  updateChunks();
-  updateSky(dt);updatePlayer(dt);updateMobs(dt);
-  updateMining(dt);
-  updateParticles(dt);
-  updateHighlight();
+  if(inGame){                                  // menus pause the world entirely
+    updateChunks();
+    updateSky(dt);updatePlayer(dt);updateMobs(dt);
+    updateMining(dt);
+    updateParticles(dt);
+    updateHighlight();}
+  if(invOpen&&invMode==='inv')updateInvPreview();
   renderer.render(scene,camera);}
 tick();
 </script>
