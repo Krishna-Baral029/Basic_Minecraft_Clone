@@ -2,8 +2,11 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>MineClone</title>
+<title>Minecraft Online</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='6' fill='%2356a832'/><rect y='6' width='16' height='10' fill='%23795433'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:monospace}
   canvas{display:block;position:fixed;top:0;left:0;z-index:0}
@@ -23,16 +26,24 @@
   #info{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,.7);padding:20px 30px;border-radius:8px;text-align:center;line-height:1.7;display:none}
   #flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .3s}
   #clock{position:fixed;top:8px;right:12px;color:#fff;text-shadow:0 0 3px #000}
+  #debug{position:fixed;top:4px;left:4px;z-index:1;color:#fff;
+    font-family:'VT323',monospace;font-size:clamp(16px,1.35vw,28px);line-height:1.15;
+    text-shadow:1px 1px 0 #000;white-space:pre;pointer-events:none;display:none}
+  #debug span{background:rgba(80,80,80,.5)}
   /* ---- Minecraft-style main menu ---- */
-  #menu{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;image-rendering:pixelated}
+  #menu{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;image-rendering:pixelated;background-color:#7a4f2b}
   #menu::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.55)}
   #menu>*{position:relative}
-  #menu h1{color:#fff;font-size:64px;letter-spacing:6px;text-shadow:5px 5px 0 #3a3a3a;margin:0}
-  #splash{color:#ffff55;transform:rotate(-12deg);font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #3f3f00;margin:4px 0 36px;animation:pulse .9s infinite}
-  @keyframes pulse{50%{transform:rotate(-12deg) scale(1.1)}}
+  #logoWrap{position:relative;display:inline-block;line-height:0;margin:0 0 40px}
+  #mLogo{display:block;width:min(86vw,680px);height:auto;image-rendering:pixelated}
+  /* splash sits over the lower-right of the logo, overlapping the "FT", like vanilla */
+  #splash{position:absolute;left:66%;top:88%;white-space:nowrap;font-family:'VT323',monospace;
+    color:#ffff55;font-size:24px;font-weight:bold;text-shadow:2px 2px 0 #3f3f00;
+    transform-origin:left center;transform:rotate(-15deg);animation:pulse .9s infinite;pointer-events:none}
+  @keyframes pulse{50%{transform:rotate(-15deg) scale(1.1)}}
   .mbtn{width:340px;padding:13px;margin:5px;font-family:monospace;font-size:19px;color:#fff;background:#6f6f6f;border:2px solid #000;box-shadow:inset 2px 2px 0 #ababab,inset -2px -2px 0 #474747;cursor:pointer;text-shadow:2px 2px 0 #3f3f3f}
   .mbtn:hover{background:#83a5d4}
-  #mMsg{color:#ff8;height:22px;margin-top:16px;font-size:14px}
+  #mMsg{font-family:'VT323',monospace;color:#ff8;height:22px;margin-top:16px;font-size:20px}
   #mFoot{position:absolute;bottom:8px;left:10px;color:#ddd;font-size:12px}
   /* ---- sub-screens (Select World / Create World / Loading) ---- */
   .mscreen{position:fixed;inset:0;z-index:11;display:none;flex-direction:column;align-items:center;image-rendering:pixelated}
@@ -40,7 +51,7 @@
   .mscreen::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.55)}
   .mscreen>*{position:relative}
   .mtitle{color:#fff;font-size:22px;margin:18px 0 12px;text-shadow:2px 2px 0 #3f3f3f}
-  .wlist{width:min(640px,92vw);flex:1;overflow-y:auto;background:rgba(0,0,0,.45);border-top:2px solid #000;border-bottom:2px solid #000;margin-bottom:14px;padding:6px}
+  .wlist{width:min(640px,92vw);flex:none;height:68vh;overflow-y:auto;background:rgba(0,0,0,.45);border-top:2px solid #000;border-bottom:2px solid #000;margin-bottom:14px;padding:6px}
   .wrow{padding:8px 10px;margin:3px;color:#fff;cursor:pointer;border:2px solid transparent}
   .wrow:hover{background:rgba(255,255,255,.07)}
   .wrow.sel{border-color:#fff;background:rgba(0,0,0,.4);box-shadow:0 0 0 2px #000}
@@ -64,7 +75,7 @@
   .pbar{width:min(400px,80vw);height:12px;border:2px solid #fff;background:#000;padding:2px}
   #pfill{height:100%;width:0;background:#4cbb17;transition:width .15s linear}
   #loadPct{color:#fff;margin-top:10px;font-size:14px}
-  #loadTip{position:absolute;bottom:26px;color:#ffff55;font-size:13px;text-shadow:2px 2px 0 #3f3f00}
+  #loadTip{position:absolute;bottom:26px;font-family:'VT323',monospace;color:#ffff55;font-size:18px;text-shadow:2px 2px 0 #3f3f00}
   /* ---- Minecraft-style survival inventory (E) ---- */
   #inv{position:fixed;inset:0;z-index:5;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
   #inv.show{display:flex}
@@ -107,6 +118,7 @@
   <div id="hotbar"></div>
 </div>
 <div id="clock"></div>
+<div id="debug"></div>
 <div id="flash"></div>
 <!-- ---- survival inventory screen (E) ---- -->
 <div id="inv">
@@ -140,21 +152,24 @@
   </div>
   <div id="heldItem"></div>
 </div>
-<div id="info"><b>MINECLONE</b><br><br>Click to play<br>WASD move &middot; Space jump / swim up<br>
+<div id="info"><b>Minecraft</b><br><br>Click to play<br>WASD move &middot; Space jump / swim up<br>
 Hold left click: mine blocks &middot; Click: attack<br>
 Right click: place (uses inventory!) &middot; Mine to collect more<br>
 1-8 / mouse wheel: select block &middot; Middle click: pick block<br>
+P: change camera view &middot; C: crouch / sneak<br>
 E: inventory + crafting &middot; log&rarr;4 planks &middot; 2 planks&rarr;4 sticks<br>
 4 planks &rarr; crafting table &middot; place it + right-click for 3x3 tool crafting!<br><br>
 Watch out for zombies at night!</div>
 <div id="menu">
-  <h1>MINECLONE</h1>
-  <div id="splash">Also try real Minecraft!</div>
+  <div id="logoWrap">
+    <img id="mLogo" src="image.svg" alt="Minecraft">
+    <div id="splash"></div>
+  </div>
   <button class="mbtn" id="bSingle">Singleplayer</button>
   <button class="mbtn" id="bMulti">Multiplayer</button>
   <button class="mbtn" id="bQuit">Quit Game</button>
   <div id="mMsg"></div>
-  <div id="mFoot">MineClone 1.0 - single file demo</div>
+  <div id="mFoot">Minecraft Online - single file demo</div>
 </div>
 <!-- ---- Select World screen ---- -->
 <div id="selWorld" class="mscreen">
@@ -332,6 +347,19 @@ for(let y=0;y<16;y++)for(let x=0;x<16;x++){
 const menuEl=document.getElementById('menu');
 menuEl.style.background='url('+bgC.toDataURL()+')';
 menuEl.style.backgroundSize='64px 64px';
+// rotating yellow splash line — a fresh one is picked every time the menu shows
+const SPLASHES=['Also try real Minecraft!','Never dig down!','Punching wood!','Ride the pig!',
+  'Buckets of lava!','Falling off cliffs!','Try the Nether!','Read more books!',
+  'Tell your friends!','Do not distribute!'];
+const splashEl=document.getElementById('splash');
+function pickSplash(){
+  const t=SPLASHES[Math.floor(Math.random()*SPLASHES.length)];
+  splashEl.textContent=t;
+  // VT323 is monospace, so scale the size by length → every splash fills about the
+  // same width (short lines get bigger letters, long lines smaller), like vanilla
+  splashEl.style.fontSize=Math.max(24,Math.min(42,Math.round(620/t.length)))+'px';
+}
+pickSplash();                               // randomize the first one shown on load too
 let inGame=false;                          // false while on any menu screen
 for(const id of['selWorld','createWorld','loading']){
   const e=document.getElementById(id);
@@ -432,6 +460,13 @@ function placeHouse(cx,cz,style){
   if(C.rx>=3){sB(x0,h+2,cz-1,GLASS);sB(x1,h+2,cz+1,GLASS);}
   if(C.rz>=3){sB(cx-1,h+2,z1,GLASS);sB(cx+1,h+2,z0,GLASS);}
   sB(cx,h+1,z0,DOORCL);sB(cx,h+2,z0,DOORCU);sB(cx,h,z0-1,COBBLE);
+  // level a short apron in front of the door (the 1-block house border only reaches z0-1)
+  // so higher natural terrain just outside can't form a dirt step that walls off the doorway
+  for(let dz=2;dz<=4;dz++)for(let ax=cx-1;ax<=cx+1;ax++){
+    const z=z0-dz;
+    for(let y=h-1;y>=0&&!isSolid(gB(ax,y,z));y--)sB(ax,y,z,DIRT); // fill down to solid where ground is lower
+    sB(ax,h,z,GRASS);
+    for(let y=h+1;y<=h+5;y++)sB(ax,y,z,AIR);}                     // clear anything above the walkway
   let y=h+C.wh+1;
   if(C.roof==='flat'){
     for(let x=x0;x<=x1;x++)for(let z=z0;z<=z1;z++)
@@ -730,8 +765,14 @@ addEventListener('keydown',startMenuMusic);
 const keys={};
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;      // typing a world name, not playing
+  if(e.code==='F3'){e.preventDefault();   // toggle debug overlay
+    showDebug=!showDebug;debugEl.style.display=showDebug?'block':'none';return;}
   if(e.code==='KeyE'&&inGame){e.preventDefault();toggleInv();return;}
   if(invOpen){if(e.code==='Escape')closeInv();return;} // inventory captures the keyboard
+  if(e.code==='KeyP'&&inGame){e.preventDefault();      // cycle 1st -> 3rd back -> 3rd front, like F5
+    player.view=(player.view+1)%3;play('uiClick',.4);return;}
+  if(e.code==='KeyC'&&inGame){e.preventDefault();      // toggle crouch/sneak
+    player.crouching=!player.crouching;return;}
   keys[e.code]=true;
   if(e.code.startsWith('Digit')){const n=+e.code[5]-1;
     if(n>=0&&n<hotbar.length){sel=n;drawHotbar();showItemName();}}});
@@ -760,7 +801,8 @@ function findSpawn(){                             // spiral out until clear dry 
       if(g>WATER&&gB(x,g,z)!==WATERB&&colClear(x,z,g)){sx=x;sz=z;break outer2;}}}
 findSpawn();
 const player={pos:new THREE.Vector3(sx+.5,0,sz+.5),vel:new THREE.Vector3(),
-  yaw:0,pitch:0,onGround:false,hp:20,wasInWater:false,swimT:0,stepT:0};
+  yaw:0,pitch:0,onGround:false,hp:20,wasInWater:false,swimT:0,stepT:0,
+  view:0,crouching:false,crouchAmt:0,walkPhase:0}; // view: 0=first, 1=third-back, 2=third-front
 player.pos.y=groundH(sx,sz)+2;
 const spawn=player.pos.clone();
 // world settings chosen in the Create New World menu
@@ -796,11 +838,20 @@ document.addEventListener('mousemove',e=>{if(document.pointerLockElement){
 const infoEl=document.getElementById('info');
 document.addEventListener('pointerlockchange',()=>{
   infoEl.style.display=(document.pointerLockElement||!inGame||invOpen)?'none':'block';});
+// Aim always comes from the player's eyes + look direction, never the camera —
+// so block-breaking and attacks work identically in 1st and 3rd person.
+const aimOrigin=new THREE.Vector3(),aimDir=new THREE.Vector3();
+function updateAim(){
+  const cp=Math.cos(player.pitch);                   // forward vector from yaw/pitch (YXZ), like the camera's
+  aimDir.set(-Math.sin(player.yaw)*cp,Math.sin(player.pitch),-Math.cos(player.yaw)*cp);
+  const eye=1.62-player.crouchAmt*.35;               // eye drops when crouching, like vanilla
+  aimOrigin.copy(player.pos).add(new THREE.Vector3(0,eye,0));}
 function raycast(){
-  const dir=new THREE.Vector3();camera.getWorldDirection(dir);
+  updateAim();
+  const dir=aimDir;
   let prev=null,last=null;
   for(let t=0;t<6;t+=.02){
-    const q=camera.position.clone().addScaledVector(dir,t);
+    const q=aimOrigin.clone().addScaledVector(dir,t);
     const bx=Math.floor(q.x),by=Math.floor(q.y),bz=Math.floor(q.z);
     const key=bx+','+by+','+bz;
     if(key!==last){const b=gB(bx,by,bz);
@@ -842,6 +893,25 @@ function collidesP(){
   for(const dx of[-r,r])for(const dz of[-r,r])for(const dy of[.05,.9,1.75])
     if(solidAt(Math.floor(p.x+dx),Math.floor(p.y+dy),Math.floor(p.z+dz)))return true;
   return false;}
+function updateThirdPerson(eyeY,moveSpd){
+  const show=player.view!==0;
+  pbody.g.visible=show;
+  if(!show)return;
+  // the rig's feet sit at group y=0 and its eyes ~1.5 up; align eyes to the player's eye height
+  pbody.g.position.set(player.pos.x,player.pos.y+(eyeY-1.5),player.pos.z);
+  pbody.g.rotation.y=Math.PI-player.yaw;             // face the look direction (rig faces +Z)
+  // crouch: sink the body and pitch the torso forward, like vanilla sneak
+  const cr=player.crouchAmt;
+  pbody.g.position.y-=cr*.28;
+  pbody.g.rotation.x=cr*.5;
+  // head follows pitch
+  pbody.head.rotation.x=-player.pitch;
+  // walk cycle: limbs list holds both legs + both arms, arms signed opposite the legs
+  const sw=Math.sin(player.walkPhase)*.8*Math.min(1,moveSpd/3);
+  for(const[l,s2]of pbody.limbs)l.rotation.x=sw*s2;
+  const[la,ra]=pbody.arms;                           // arms tuck in slightly when sneaking
+  ra.rotation.z=cr*.15; la.rotation.z=-cr*.15;
+}
 function updatePlayer(dt){
   const fx=Math.floor(player.pos.x),fz=Math.floor(player.pos.z);
   const feetWater=gB(fx,Math.floor(player.pos.y+.4),fz)===WATERB;
@@ -852,17 +922,27 @@ function updatePlayer(dt){
   const sy=Math.sin(player.yaw),cy=Math.cos(player.yaw);
   let wx=-sy*f+cy*s,wz=-cy*f-sy*s;
   const l=Math.hypot(wx,wz)||1;wx/=l;wz/=l;
-  const sprint=(keys.ShiftLeft||keys.ShiftRight)&&f>0&&!inWater;
-  const sp=(inWater?3:(sprint?7.2:4.6))*(f||s?1:0);
+  const crouch=player.crouching&&player.onGround&&!inWater;
+  player.crouchAmt+=((crouch?1:0)-player.crouchAmt)*Math.min(1,dt*12); // ease the sneak crouch
+  const sprint=(keys.ShiftLeft||keys.ShiftRight)&&f>0&&!inWater&&!crouch; // can't sprint while sneaking
+  const sp=(inWater?3:crouch?1.5:(sprint?7.2:4.6))*(f||s?1:0); // sneak walks slowly, like vanilla
   camera.fov+=((sprint?85:75)-camera.fov)*Math.min(1,dt*8);
   camera.updateProjectionMatrix();
   player.vel.x+=(wx*sp-player.vel.x)*Math.min(1,dt*10);
   player.vel.z+=(wz*sp-player.vel.z)*Math.min(1,dt*10);
   let hitWall=false;
+  // sneak edge protection: while crouching on the ground you won't step off a ledge
+  const ledge=p=>{const fy=Math.floor(p.y-.05);
+    for(const dx of[-.3,.3])for(const dz of[-.3,.3])
+      if(solidAt(Math.floor(p.x+dx),fy-1,Math.floor(p.z+dz)))return false;
+    return true;}; // true = nothing solid under any foot corner -> would fall
+  const guard=crouch&&player.onGround;
   player.pos.x+=player.vel.x*dt;
   if(collidesP()){player.pos.x-=player.vel.x*dt;player.vel.x=0;hitWall=true;}
+  else if(guard&&ledge(player.pos)){player.pos.x-=player.vel.x*dt;player.vel.x=0;}
   player.pos.z+=player.vel.z*dt;
   if(collidesP()){player.pos.z-=player.vel.z*dt;player.vel.z=0;hitWall=true;}
+  else if(guard&&ledge(player.pos)){player.pos.z-=player.vel.z*dt;player.vel.z=0;}
    if(inWater){                                    // Minecraft-style swimming
     player.vel.y-=7*dt;                           // very light gravity
     player.vel.y=Math.max(player.vel.y,-.85);     // sink slowly, like Minecraft
@@ -889,8 +969,30 @@ function updatePlayer(dt){
   else player.stepT=0;
   if(player.pos.y<-12){player.pos.copy(spawn);player.vel.set(0,0,0);}
   if(daylight>.5)player.hp=Math.min(20,player.hp+dt*.4);
-  camera.position.copy(player.pos).add(new THREE.Vector3(0,1.62,0));
-  camera.rotation.y=player.yaw;camera.rotation.x=player.pitch;
+  // limb swing phase tracks actual horizontal speed (for the 3rd-person body)
+  const moveSpd=Math.hypot(player.vel.x,player.vel.z);
+  player.walkPhase+=dt*moveSpd*2.2;
+  const eyeY=1.62-player.crouchAmt*.35;
+  updateThirdPerson(eyeY,moveSpd);
+  if(player.view===0){                               // first person: camera at the eyes
+    camera.position.copy(player.pos).add(new THREE.Vector3(0,eyeY,0));
+    camera.rotation.set(player.pitch,player.yaw,0);
+  }else{                                             // third person: orbit behind (view 1) or in front (view 2)
+    const cp=Math.cos(player.pitch);
+    // forward look vector (matches the first-person camera's getWorldDirection)
+    const fwd=new THREE.Vector3(-Math.sin(player.yaw)*cp,Math.sin(player.pitch),-Math.cos(player.yaw)*cp);
+    const sign=player.view===2?1:-1;                 // back view sits opposite the look dir; front view along it
+    const dist=3.4;
+    const pivot=new THREE.Vector3(player.pos.x,player.pos.y+eyeY,player.pos.z);
+    // pull back along the orbit ray, stopping short of any wall it would clip into
+    let d=dist;
+    for(let t=.2;t<=dist;t+=.2){
+      const cx=pivot.x+fwd.x*t*sign,cy=pivot.y+fwd.y*t*sign,cz=pivot.z+fwd.z*t*sign;
+      if(solidAt(Math.floor(cx),Math.floor(cy),Math.floor(cz))){d=t-.25;break;}}
+    d=Math.max(.4,d);
+    camera.position.set(pivot.x+fwd.x*d*sign,pivot.y+fwd.y*d*sign,pivot.z+fwd.z*d*sign);
+    if(player.view===2)camera.rotation.set(-player.pitch,player.yaw+Math.PI,0); // look back at the face
+    else camera.rotation.set(player.pitch,player.yaw,0);}                       // look forward over the shoulder
   document.getElementById('hearts').textContent=
     isCreative()?'':'❤'.repeat(Math.max(0,Math.ceil(player.hp/2)));}
 function damagePlayer(n){
@@ -946,7 +1048,7 @@ function humanoid(skin,shirt,pants,opts={}){
   if(opts.zombie){la.rotation.x=ra.rotation.x=-Math.PI/2;}
   g.add(la,ra,ll,rl);
   limbs.push([ll,1],[rl,-1]);if(!opts.zombie)limbs.push([la,-1],[ra,1]);
-  return{g,limbs,head};}
+  return{g,limbs,head,arms:[la,ra]};}
 function quadruped(bodyC,headC,legH,bodyTex){
   const g=new THREE.Group(),limbs=[];
   g.add(part(.7,.55,1.0,bodyC,0,legH+.275,0,false,bodyTex));
@@ -1032,7 +1134,9 @@ class Mob{
     this.ambT=.5+Math.random()*3;            // first ambient voice within ~3s, staggered per mob
     this.flap=0;this.flapSpd=0;               // wing-flap phase + eased flap magnitude
     const m=builders[type]();this.group=m.g;this.limbs=m.limbs;this.head=m.head;
-    this.wings=m.wings;
+    this.wings=m.wings;this.arms=m.arms;
+    this.attackT=0;this.armAge=Math.random()*1000;this.armRaise=0; // zombie arm swing progress, idle-sway phase, eased aggression
+    this.flank=0;this.flankT=0;               // per-zombie approach offset so they don't all path the same line
     this.group.traverse(o=>{if(o.material)o.userData.base=o.material.color.clone();});
     scene.add(this.group);}
   remove(){scene.remove(this.group);
@@ -1098,9 +1202,12 @@ class Mob{
         this.pos.x+(Math.random()-.5)*.6,
         this.pos.y+Math.random()*1.8,
         this.pos.z+(Math.random()-.5)*.6); 
+      const fd=this.pos.distanceTo(player.pos);
       if((this.fireSndT=(this.fireSndT||0)-dt)<=0){this.fireSndT=1.5; // re-fire before the ~2s clip ends so the crackle never gaps
-        const fd=this.pos.distanceTo(player.pos);
         if(fd<22&&!play('fire',.5/(1+fd*.15)))noiseSnd({dur:.15,vol:.08,f0:2500,f1:600});}
+      // fire damages the zombie once a second -> it groans in pain, like vanilla's burning-at-dawn cry
+      if((this.burnHurtT=(this.burnHurtT||0)-dt)<=0){this.burnHurtT=1;
+        if(fd<22)play('zombieHurt',.55/(1+fd*.12),.9+Math.random()*.2);}
       if(this.burnT<=0){this.dead=true;
         play('zombieDeath',.4/(1+this.pos.distanceTo(player.pos)*.15));
         for(let i=0;i<14;i++)spawnFlame(   // final burst
@@ -1120,6 +1227,21 @@ class Mob{
          this.pos.x=mx;this.pos.z=mz;}
        player.pos.x-=nx2*push*.4;player.pos.z-=nz2*push*.4;       // player gets nudged too
        if(collidesP()){player.pos.x+=nx2*push*.4;player.pos.z+=nz2*push*.4;}}}
+    // entity cramming between mobs: overlapping bodies shove each other apart, like vanilla.
+    // this is what stops a pack of zombies from stacking into one spot / walking single file.
+    {const sepD=.9;let sx2=0,sz2=0;
+     for(const o of mobs){
+       if(o===this||o.dying>=0)continue;
+       const dx2=this.pos.x-o.pos.x,dz2=this.pos.z-o.pos.z;
+       if(Math.abs(this.pos.y-o.pos.y)>1.7)continue;
+       const dd=Math.hypot(dx2,dz2);
+       if(dd<sepD&&dd>1e-4){const w=(sepD-dd)/dd;sx2+=dx2*w;sz2+=dz2*w;} // weight by overlap
+       else if(dd<=1e-4){sx2+=Math.cos(this.dir);sz2+=Math.sin(this.dir);}} // exact overlap: break the tie
+     if(sx2||sz2){
+       const mx=this.pos.x+sx2*dt*2.2,mz=this.pos.z+sz2*dt*2.2;
+       const fy2=Math.floor(this.pos.y+.1);
+       if(!solidAt(Math.floor(mx),fy2,Math.floor(this.pos.z))&&!solidAt(Math.floor(mx),fy2+1,Math.floor(this.pos.z)))this.pos.x=mx;
+       if(!solidAt(Math.floor(this.pos.x),fy2,Math.floor(mz))&&!solidAt(Math.floor(this.pos.x),fy2+1,Math.floor(mz)))this.pos.z=mz;}}
     const pd=this.pos.distanceTo(player.pos);
     // ambient voice on a vanilla-style timer (~every 80+rand ticks), not pure chance:
     // guarantees a mob speaks within seconds of you walking up, never minutes
@@ -1137,9 +1259,26 @@ class Mob{
       this.moving=true;}
     let sp=this.type==='zombie'?1.6:(this.panicT>0?2.7:1.3);
     if(this.type==='zombie'){
-      if(pd<18){this.dir=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z);
+      this.aggro=pd<18;                        // chasing a target -> arms lift, like vanilla
+      if(pd<18){
+        // each zombie periodically re-picks a flank offset, so a pack fans out and
+        // closes in from different angles instead of all marching the same straight line.
+        // the offset shrinks as they get close, so they still converge for the kill.
+        if((this.flankT-=dt)<=0){this.flankT=1.2+Math.random()*1.5;
+          this.flank=(Math.random()*2-1)*.9;}  // up to ~50 deg off the direct line
+        const base=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z);
+        const off=this.flank*Math.min(1,(pd-1.5)/6); // fade the flank out at close range
+        let dir=base+off;
+        // light obstacle steer: if a wall too tall to step over is dead ahead,
+        // veer toward this zombie's preferred side instead of grinding into it
+        const fy=Math.floor(this.pos.y+.1);
+        const ax=this.pos.x+Math.sin(dir)*.7,az=this.pos.z+Math.cos(dir)*.7;
+        const bax=Math.floor(ax),baz=Math.floor(az);
+        if(solidAt(bax,fy,baz)&&solidAt(bax,fy+1,baz))   // chest-high block: not a climbable step
+          dir=base+(this.flank>=0?.8:-.8);
+        this.dir=dir;
         this.moving=pd>1.1;sp=2.5;             // stop at arm's reach instead of walking into you
-        if(pd<1.5&&this.cool<=0){this.cool=1.1;
+        if(pd<1.5&&this.cool<=0){this.cool=1.1;this.attackT=1; // start a forward arm swing
           damagePlayer(world.diff==='Easy'?1:world.diff==='Hard'?3:2);}}}
     if(this.type==='villager'&&this.home&&this.panicT<=0){
       const dx=this.pos.x-this.home.x,dz=this.pos.z-this.home.z;
@@ -1179,8 +1318,27 @@ class Mob{
     // gait: stride length scales with speed and eases in/out instead of snapping
     this.swing+=((this.moving?Math.min(1,sp/2.2):0)-this.swing)*Math.min(1,dt*8);
     const sw=Math.sin(this.phase)*.9*this.swing;
-    for(const[l,s2]of this.limbs)
-      l.rotation.x=(this.type==='zombie'&&l.position.y>1)?-Math.PI/2:sw*s2;
+    for(const[l,s2]of this.limbs)l.rotation.x=sw*s2; // legs (zombie arms handled below)
+    if(this.type==='zombie'&&this.arms){
+      // port of Minecraft AnimationUtils.animateZombieArms: arms held out front,
+      // raised higher when it has a target, a constant gentle idle sway, and a
+      // forward thrust when it lands a hit.
+      this.armAge+=dt*20;                              // advance in "ticks" (20/s) like vanilla ageInTicks
+      if(this.attackT>0)this.attackT=Math.max(0,this.attackT-dt/.35); // swing lasts ~0.35s
+      const aggro=this.aggro?1:0;                      // set in the chase logic below
+      this.armRaise+=(aggro-this.armRaise)*Math.min(1,dt*6);          // ease the lift up/down
+      const prog=1-this.attackT;                       // 0 -> 1 across one swing
+      const f=Math.sin(prog*Math.PI);                  // forward thrust bump (0->1->0)
+      const g=Math.sin((1-(1-prog)*(1-prog))*Math.PI); // trailing easing, pulls the arm back
+      // base hold angle: ~ -80 deg at rest, lifting toward ~ -120 deg when aggressive
+      const h=-Math.PI/(2.25-this.armRaise*.75);
+      const [la,ra]=this.arms;
+      const xr=h+f*1.2-g*.4;                            // forward swing on the X axis
+      const idle=Math.sin(this.armAge*.067)*.05;       // slow idle bob
+      const zr=Math.cos(this.armAge*.09)*.05+.05;       // slow idle outward sway
+      ra.rotation.x=xr+idle; la.rotation.x=xr-idle;
+      ra.rotation.z= zr;     la.rotation.z=-zr;
+      ra.rotation.y=-(0.1-f*.6); la.rotation.y=0.1-f*.6;}
     if(this.type==='chicken'&&this.wings){
       // flap hard when off the ground (jumping or falling) or fleeing; flutter softly otherwise.
       // wings rotate on Z and swing OUTWARD; magnitude oscillates 0..2*amp like vanilla (sin+1)*speed
@@ -1214,8 +1372,8 @@ class Mob{
 const mobRay=new THREE.Raycaster();
 let nextAttack=0;                              // minecraft-style swing cooldown
 function mobTargeted(){
-  const dir=new THREE.Vector3();camera.getWorldDirection(dir);
-  mobRay.set(camera.position,dir);mobRay.far=4;
+  updateAim();
+  mobRay.set(aimOrigin,aimDir);mobRay.far=4;
   for(const m of mobs)
     if(m.dying<0&&mobRay.intersectObject(m.group,true).length)return m;
   return null;}
@@ -1305,7 +1463,7 @@ function spawnAnimal(){
   const x=Math.floor(player.pos.x+Math.sin(a)*d2),z=Math.floor(player.pos.z+Math.cos(a)*d2);
   const h=groundH(x,z);
   if(h>WATER&&gB(x,h,z)===GRASS){
-    const r=Math.random(),type=r<.4?'pig':r<.7?'sheep':'chicken';
+    const r=Math.random(),type=r<1/3?'pig':r<2/3?'sheep':'chicken'; // equal odds for all three
     mobs.push(new Mob(type,x+.5,h+1,z+.5));}}
 
 function spawnZombie(){
@@ -1607,6 +1765,20 @@ const steve=humanoid('#c68a64','#0fa9a9','#3d4aaa',{arm:'#0fa9a9'});
  h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.252));        // nose
  h.add(part(.19,.07,.03,'#6b4533',0,.035,.252));}        // mouth/beard patch
 pvScene.add(steve.g);
+// ---- third-person player body: the same humanoid rig, shown only in 3rd-person view ----
+const pbody=humanoid('#c68a64','#0fa9a9','#3d4aaa',{arm:'#0fa9a9'});
+{const h=pbody.head;                                   // matching Steve face/hair from the preview
+ h.add(part(.56,.13,.56,'#3a2a1a',0,.47,0));
+ h.add(part(.03,.26,.56,'#3a2a1a',-.265,.34,0));
+ h.add(part(.03,.26,.56,'#3a2a1a',.265,.34,0));
+ h.add(part(.56,.26,.03,'#3a2a1a',0,.34,-.265));
+ for(const s of[-1,1]){
+   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.252));
+   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.252));}
+ h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.252));
+ h.add(part(.19,.07,.03,'#6b4533',0,.035,.252));}
+pbody.g.visible=false;
+scene.add(pbody.g);
 const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
 pvCam.position.set(0,1.0,3.6);pvCam.lookAt(0,.95,0);
 const pvR=new THREE.WebGLRenderer({antialias:false});
@@ -1634,6 +1806,7 @@ function showScreen(el){                      // null hides everything (in-game)
   // scrolls it into view) — pin the page back to the top on every screen change
   scrollTo(0,0);document.documentElement.scrollTop=document.body.scrollTop=0;
   menuEl.style.display=el===menuEl?'flex':'none';
+  if(el===menuEl)pickSplash();              // new random splash each time we land on the menu
   for(const s of[selWorldEl,createEl,loadingEl]){
     s.classList.remove('show');
     if(s===el){void s.offsetWidth;s.classList.add('show');}}} // retrigger slide-in anim
@@ -1724,7 +1897,9 @@ const TIPS=['Tip: Watch out for zombies at night!','Tip: Hold left click to mine
   'Tip: Press E and craft a log into 4 planks','Tip: 2 planks stacked in the crafting grid make 4 sticks',
   'Tip: 4 planks in a square craft a crafting table',
   'Tip: Right-click a placed crafting table to craft tools in its 3x3 grid',
-  'Tip: The right tool mines its blocks much faster'];
+  'Tip: The right tool mines its blocks much faster',
+  'Tip: Press P to switch between 1st and 3rd person views',
+  'Tip: Press C to crouch — you won\'t fall off ledges while sneaking'];
 const GEN_STAGES=[[0,'Building terrain'],[40,'Carving lakes'],[58,'Growing trees'],
   [74,'Spawning villages'],[88,'Preparing spawn area']];
 function playWorld(w){
@@ -1770,6 +1945,23 @@ function hardcoreDeath(){                       // hardcore: death deletes the w
   $('mMsg').textContent='You died! Hardcore worlds are lost forever...';
   startMenuMusic();}
 const clock=new THREE.Clock();
+// ---- F3 debug overlay: fps, coordinates, version (a trimmed MC F3 screen) ----
+const MC_VERSION='1.21.11';
+let showDebug=false,fps=0,fpsAcc=0,fpsFrames=0,debugAcc=0;
+const debugEl=document.getElementById('debug');
+function updateDebug(dt){
+  fpsAcc+=dt;fpsFrames++;                       // average fps over ~0.5s windows so it doesn't jitter
+  if(fpsAcc>=.5){fps=Math.round(fpsFrames/fpsAcc);fpsAcc=0;fpsFrames=0;}
+  if(!showDebug)return;
+  if((debugAcc+=dt)<.2)return;                  // refresh the text ~5x/sec, not every frame
+  debugAcc=0;
+  const p=player.pos;
+  debugEl.innerHTML=
+    `<span>${fps} fps</span>\n`+
+    `<span>Minecraft ${MC_VERSION}</span>\n`+
+    `<span>XYZ: ${p.x.toFixed(3)} / ${p.y.toFixed(3)} / ${p.z.toFixed(3)}</span>\n`+
+    `<span>Block: ${Math.floor(p.x)} ${Math.floor(p.y)} ${Math.floor(p.z)}</span>`;
+}
 function tick(){
   requestAnimationFrame(tick);
   const dt=Math.min(clock.getDelta(),.05);
@@ -1780,6 +1972,7 @@ function tick(){
     updateParticles(dt);
     updateHighlight();}
   if(invOpen&&invMode==='inv')updateInvPreview();
+  updateDebug(dt);
   renderer.render(scene,camera);}
 tick();
 </script>
