@@ -9,9 +9,13 @@
 <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:monospace}
+  /* it's a game — kill text selection, the blue drag-highlight, and image dragging */
+  *{-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  input,textarea{-webkit-user-select:text;-moz-user-select:text;user-select:text} /* but let the world-name field be editable */
+  img{-webkit-user-drag:none;user-drag:none}
   canvas{display:block;position:fixed;top:0;left:0;z-index:0}
   #cross,#hud,#clock,#flash,#info{z-index:1}
-  #cross{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;font-size:20px;pointer-events:none;text-shadow:0 0 2px #000}
+  #cross{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#a3d9f2;font-size:30px;font-weight:bold;pointer-events:none;text-shadow:0 0 3px rgba(0,0,0,.6)}
   /* ---- Minecraft-style HUD: big hotbar + hearts ---- */
   #hud{position:fixed;bottom:6px;left:50%;transform:translateX(-50%)}
   #itemname{text-align:center;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000;opacity:0;transition:opacity .6s;height:22px}
@@ -770,7 +774,9 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyE'&&inGame){e.preventDefault();toggleInv();return;}
   if(invOpen){if(e.code==='Escape')closeInv();return;} // inventory captures the keyboard
   if(e.code==='KeyP'&&inGame){e.preventDefault();      // cycle 1st -> 3rd back -> 3rd front, like F5
-    player.view=(player.view+1)%3;play('uiClick',.4);return;}
+    player.view=(player.view+1)%3;play('uiClick',.4);
+    flashMsg('Switched to '+['First Person','Third Person (Back)','Third Person (Front)'][player.view]);
+    return;}
   if(e.code==='KeyC'&&inGame){e.preventDefault();      // toggle crouch/sneak
     player.crouching=!player.crouching;return;}
   keys[e.code]=true;
@@ -801,8 +807,9 @@ function findSpawn(){                             // spiral out until clear dry 
       if(g>WATER&&gB(x,g,z)!==WATERB&&colClear(x,z,g)){sx=x;sz=z;break outer2;}}}
 findSpawn();
 const player={pos:new THREE.Vector3(sx+.5,0,sz+.5),vel:new THREE.Vector3(),
-  yaw:0,pitch:0,onGround:false,hp:20,wasInWater:false,swimT:0,stepT:0,
+  yaw:0,pitch:0,bodyYaw:0,onGround:false,hp:20,wasInWater:false,swimT:0,stepT:0,
   view:0,crouching:false,crouchAmt:0,walkPhase:0}; // view: 0=first, 1=third-back, 2=third-front
+  // bodyYaw = which way the torso points (chases movement); yaw = where the head/camera looks
 player.pos.y=groundH(sx,sz)+2;
 const spawn=player.pos.clone();
 // world settings chosen in the Create New World menu
@@ -893,18 +900,26 @@ function collidesP(){
   for(const dx of[-r,r])for(const dz of[-r,r])for(const dy of[.05,.9,1.75])
     if(solidAt(Math.floor(p.x+dx),Math.floor(p.y+dy),Math.floor(p.z+dz)))return true;
   return false;}
+// shortest-path angle interpolation (handles the -PI/+PI wraparound)
+function lerpAngle(a,b,t){
+  const d=Math.atan2(Math.sin(b-a),Math.cos(b-a));
+  return a+d*Math.min(1,t);}
+const angDelta=(a,b)=>Math.atan2(Math.sin(b-a),Math.cos(b-a)); // signed shortest angle a→b
+const HEAD_TWIST=1.31;                                          // 75° — MC's max head-over-body twist
 function updateThirdPerson(eyeY,moveSpd){
   const show=player.view!==0;
   pbody.g.visible=show;
   if(!show)return;
   // the rig's feet sit at group y=0 and its eyes ~1.5 up; align eyes to the player's eye height
   pbody.g.position.set(player.pos.x,player.pos.y+(eyeY-1.5),player.pos.z);
-  pbody.g.rotation.y=Math.PI-player.yaw;             // face the look direction (rig faces +Z)
+  pbody.g.rotation.y=Math.PI+player.bodyYaw;         // torso faces the movement direction (rig face is +Z)
   // crouch: sink the body and pitch the torso forward, like vanilla sneak
   const cr=player.crouchAmt;
   pbody.g.position.y-=cr*.28;
   pbody.g.rotation.x=cr*.5;
-  // head follows pitch
+  // head points exactly where the camera/crosshair looks; clamped to ±75° so it never twists
+  // past the shoulders (the body is kept within this range, so the head usually reaches it)
+  pbody.head.rotation.y=Math.max(-HEAD_TWIST,Math.min(HEAD_TWIST,angDelta(player.bodyYaw,player.yaw)));
   pbody.head.rotation.x=-player.pitch;
   // walk cycle: limbs list holds both legs + both arms, arms signed opposite the legs
   const sw=Math.sin(player.walkPhase)*.8*Math.min(1,moveSpd/3);
@@ -922,6 +937,22 @@ function updatePlayer(dt){
   const sy=Math.sin(player.yaw),cy=Math.cos(player.yaw);
   let wx=-sy*f+cy*s,wz=-cy*f-sy*s;
   const l=Math.hypot(wx,wz)||1;wx/=l;wz/=l;
+  // ---- third-person body yaw, Minecraft-accurate (LivingEntity render angles) ----
+  //  - moving: the torso eases toward the TRAVEL direction; but if you're back-pedalling
+  //    (travel >95° from where you look) it flips 180° so you MOONWALK facing the camera
+  //    instead of spinning around — MC's exact 95° rule. So holding S keeps Steve facing
+  //    his crosshair while he slides backward.
+  //  - the body is always dragged to keep the head within ±75° of it, so the head leads
+  //    (looks at the crosshair) and the body only pivots once you over-turn it — no snapping.
+  if(f||s){
+    let moveYaw=Math.atan2(-wx,-wz);                 // body yaw aligned with the travel vector
+    if(Math.abs(angDelta(player.yaw,moveYaw))>1.658) // 95°: travelling backward relative to look
+      moveYaw+=Math.PI;                              // → face the look direction (moonwalk)
+    player.bodyYaw=lerpAngle(player.bodyYaw,moveYaw,Math.min(1,dt*9)); // eased, never an instant snap
+  }
+  const hbOff=angDelta(player.bodyYaw,player.yaw);    // how far the head currently leads the body
+  if(hbOff>HEAD_TWIST)       player.bodyYaw=lerpAngle(player.bodyYaw,player.yaw-HEAD_TWIST,Math.min(1,dt*16));
+  else if(hbOff<-HEAD_TWIST) player.bodyYaw=lerpAngle(player.bodyYaw,player.yaw+HEAD_TWIST,Math.min(1,dt*16));
   const crouch=player.crouching&&player.onGround&&!inWater;
   player.crouchAmt+=((crouch?1:0)-player.crouchAmt)*Math.min(1,dt*12); // ease the sneak crouch
   const sprint=(keys.ShiftLeft||keys.ShiftRight)&&f>0&&!inWater&&!crouch; // can't sprint while sneaking
@@ -1041,6 +1072,9 @@ function humanoid(skin,shirt,pants,opts={}){
   if(opts.nose)head.add(part(.12,.25,.12,opts.nose,0,.18,.31));
   g.add(head);
   g.add(part(.5,.75,.3,shirt,0,1.125,0));
+  // neck: skin only on the TOP surface of the torso — inset thinner than the torso in both
+  // width and depth so the shirt hides it on the front/back/sides, like vanilla
+  g.add(part(.44,.12,.26,skin,0,1.45,0));
   const la=part(.2,.7,.2,opts.arm||skin,-.36,1.45,0,true),
         ra=part(.2,.7,.2,opts.arm||skin,.36,1.45,0,true),
         ll=part(.22,.75,.22,pants,-.13,.75,0,true),
@@ -1048,7 +1082,7 @@ function humanoid(skin,shirt,pants,opts={}){
   if(opts.zombie){la.rotation.x=ra.rotation.x=-Math.PI/2;}
   g.add(la,ra,ll,rl);
   limbs.push([ll,1],[rl,-1]);if(!opts.zombie)limbs.push([la,-1],[ra,1]);
-  return{g,limbs,head,arms:[la,ra]};}
+  return{g,limbs,head,arms:[la,ra],legs:[ll,rl]};}
 function quadruped(bodyC,headC,legH,bodyTex){
   const g=new THREE.Group(),limbs=[];
   g.add(part(.7,.55,1.0,bodyC,0,legH+.275,0,false,bodyTex));
@@ -1582,6 +1616,10 @@ function showItemName(){                      // vanilla: selected item name fla
   const it=hotbar[sel];
   n.textContent=it?BNAME[it.b]||'Block':'';n.style.opacity=it?1:0;
   clearTimeout(nameT);nameT=setTimeout(()=>n.style.opacity=0,1300);}
+function flashMsg(text){                       // reuse the item-name flash slot for transient notices (~1s)
+  const n=document.getElementById('itemname');
+  n.textContent=text;n.style.opacity=1;
+  clearTimeout(nameT);nameT=setTimeout(()=>n.style.opacity=0,1000);}
 drawHotbar();
 // ================= INVENTORY SCREEN (press E) =================
 const invSlots=Array(27).fill(null),craftSlots=Array(4).fill(null),tableSlots=Array(9).fill(null);
@@ -1753,30 +1791,36 @@ const toggleInv=()=>invOpen?closeInv():openInv();
 // ---- live player preview: the game's own humanoid rig in Steve colours ----
 const pvScene=new THREE.Scene();
 const steve=humanoid('#c68a64','#0fa9a9','#3d4aaa',{arm:'#0fa9a9'});
-{const h=steve.head;                                    // head box is .5, so one skin pixel = .0625
- // Steve hair: cap on top with a single pixel-row fringe; longer down the sides and back
- h.add(part(.56,.13,.56,'#3a2a1a',0,.47,0));            // cap + fringe row
- h.add(part(.03,.26,.56,'#3a2a1a',-.265,.34,0));        // left side hair
- h.add(part(.03,.26,.56,'#3a2a1a',.265,.34,0));         // right side hair
- h.add(part(.56,.26,.03,'#3a2a1a',0,.34,-.265));        // back
+// Steve head detailing — shared by the inventory preview and the 3rd-person body so they
+// stay in sync. The hair is a SINGLE "helmet" shell wrapping the top, back and sides as one
+// box (no thin protruding side slabs — those darker side-fins were the ugly vertical lines),
+// with a skin face plate and the eyes/nose/mouth layered on the front.
+function addSteveHead(h){const hair='#523c25',skin='#c68a64'; // warm medium-brown hair (was near-black); head box is .5
+ h.add(part(.54,.40,.54,hair,0,.32,0));                 // hair shell: top/back/sides in one piece;
+                                                        // stops above the jaw so the lower corners
+                                                        // (sides + back) show the skin head cube, like vanilla's hairline
+ h.add(part(.26,.14,.02,hair,0,.07,-.262));             // nape: hair point down the centre of the back,
+                                                        // leaving only the bottom-left/right corners as skin
+ h.add(part(.42,.40,.03,skin,0,.20,.272));              // face: skin plate below the fringe
  for(const s of[-1,1]){
-   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.252)); // eye whites (outer)
-   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.252));}// pupils (inner, nose between)
- h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.252));        // nose
- h.add(part(.19,.07,.03,'#6b4533',0,.035,.252));}        // mouth/beard patch
+   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.30)); // eye whites (outer)
+   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.30));}// pupils (inner, nose between)
+ h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.30));         // nose
+ h.add(part(.19,.07,.03,'#6b4533',0,.035,.30));}         // mouth/beard patch
+addSteveHead(steve.head);
 pvScene.add(steve.g);
 // ---- third-person player body: the same humanoid rig, shown only in 3rd-person view ----
 const pbody=humanoid('#c68a64','#0fa9a9','#3d4aaa',{arm:'#0fa9a9'});
-{const h=pbody.head;                                   // matching Steve face/hair from the preview
- h.add(part(.56,.13,.56,'#3a2a1a',0,.47,0));
- h.add(part(.03,.26,.56,'#3a2a1a',-.265,.34,0));
- h.add(part(.03,.26,.56,'#3a2a1a',.265,.34,0));
- h.add(part(.56,.26,.03,'#3a2a1a',0,.34,-.265));
- for(const s of[-1,1]){
-   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.252));
-   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.252));}
- h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.252));
- h.add(part(.19,.07,.03,'#6b4533',0,.035,.252));}
+pbody.head.rotation.order='YXZ';   // yaw (turn) before pitch (nod), so the head twists naturally
+pbody.head.scale.set(.84,1,.84);   // head a touch narrower than the shoulders, sitting on the neck — like vanilla
+addSteveHead(pbody.head);                              // same Steve face/hair as the preview
+// short-sleeve detail: a skin forearm/hand under the teal sleeve on each arm (both rigs),
+// so the arms read as separate limbs instead of blending into the torso — like Steve
+for(const arm of [...steve.arms,...pbody.arms])
+  arm.add(part(.21,.45,.21,'#c68a64',0,-.48,0));
+// dark "shoe" at the foot of each leg, so the feet read as a separate piece — like Steve
+for(const leg of [...steve.legs,...pbody.legs])
+  leg.add(part(.235,.15,.235,'#34344d',0,-.69,0));
 pbody.g.visible=false;
 scene.add(pbody.g);
 const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
