@@ -138,8 +138,9 @@
   #quitConfirm{position:fixed;inset:0;z-index:12;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.72);image-rendering:pixelated}
   #quitConfirm.show{display:flex}
   #quitPanel{display:flex;flex-direction:column;align-items:center}
-  #quitTitle{color:#fff;font-size:22px;line-height:1.4;margin-bottom:24px;text-align:center;text-shadow:2px 2px 0 #3f3f3f;max-width:520px}
+  #quitTitle{color:#fff;font-size:28px;line-height:1.4;margin-bottom:24px;text-align:center;text-shadow:2px 2px 0 #3f3f3f;max-width:560px;font-family:'VT323',monospace}
   #quitConfirm .btnrow{justify-content:center;margin-bottom:10px}
+  #quitConfirm .mbtn{font-family:'VT323',monospace;font-size:24px} /* MC pixel font on the dialog buttons too */
   #bExitFs{width:510px;margin:0}
 </style>
 </head>
@@ -549,7 +550,11 @@ function decorate(cx,cz){
       const h=groundH(x,z);
       if(gB(x,h,z)===GRASS)tree(x,h+1,z);}}
   const vc=villageCenter(Math.floor(cx*CH/VCELL),Math.floor(cz*CH/VCELL));
-  if(Math.floor(vc.x/CH)===cx&&Math.floor(vc.z/CH)===cz)buildVillage(vc.x,vc.z);}
+  if(Math.floor(vc.x/CH)===cx&&Math.floor(vc.z/CH)===cz)buildVillage(vc.x,vc.z);
+  const ed=worldEdits[ckey(cx,cz)];               // replay this chunk's saved player edits on
+  if(ed){for(const k in ed){                      // top of the freshly regenerated terrain
+    const p=k.split(',');sB(+p[0],+p[1],+p[2],ed[k]);}
+    if(c.meshed)c.dirty=true;}}
 
 // ---- villages: one per 256x256 cell, centers jittered so neighbours sit ~200-300 apart ----
 const VCELL=256;
@@ -645,8 +650,15 @@ function unmesh(c){
   if(c.s){scene.remove(c.s);c.s.geometry.dispose();c.s=null;}
   if(c.w){scene.remove(c.w);c.w.geometry.dispose();c.w=null;}
   c.meshed=false;}
+// ---- world persistence: every gameplay block change is recorded as a diff on top of
+// the seed-deterministic terrain (world-gen writes raw sB and is NOT recorded — it
+// regenerates identically from the seed). Diffs are grouped by chunk and re-applied
+// right after a chunk decorates, so edits far from spawn survive re-exploration too.
+let worldEdits={};
 function setBlock(x,y,z,v){
   sB(x,y,z,v);
+  const ek=ckey(Math.floor(x/CH),Math.floor(z/CH));
+  (worldEdits[ek]||(worldEdits[ek]={}))[x+','+y+','+z]=v;
   for(const[dx,dz]of[[0,0],[1,0],[-1,0],[0,1],[0,-1]]){
     const c=getChunk(Math.floor((x+dx)/CH),Math.floor((z+dz)/CH));
     if(c.meshed)c.dirty=true;}}
@@ -1992,10 +2004,21 @@ function slotClick(list,idx,e){
   if(list==='armor'||list==='off')return;          // cosmetic slots: no armor items yet
   if(list==='out'){                                // take the crafting result
     if(!craftOut)return;
+    const grid=invMode==='table'?tableSlots:craftSlots;
+    if(e.shiftKey){                                // shift-click: craft-all, straight to inventory (vanilla
+      let n=0;                                     // speedrun clutch) — repeat until ingredients run out
+      while(craftOut){
+        const out=stack(craftOut.b,craftOut.count);
+        if(!addStack(out)){                        // inventory full: stop, leave the leftovers in the grid
+          if(out.count<craftOut.count)grid.forEach((s,i)=>{if(s&&--s.count<=0)grid[i]=null;});
+          break;}
+        grid.forEach((s,i)=>{if(s&&--s.count<=0)grid[i]=null;});
+        n++;updateCraft();}
+      if(n){play('uiClick',.3);drawHotbar();}
+      return;}
     if(!heldStack)heldStack=stack(craftOut.b,craftOut.count);
     else if(heldStack.b===craftOut.b&&heldStack.count+craftOut.count<=stackMax(craftOut.b))heldStack.count+=craftOut.count;
     else return;
-    const grid=invMode==='table'?tableSlots:craftSlots;
     grid.forEach((s,i)=>{if(s&&--s.count<=0)grid[i]=null;}); // consume ingredients
     updateCraft();play('uiClick',.3);drawHotbar();return;}
   const it=getSlot(list,idx);
@@ -2170,7 +2193,10 @@ fpScene.add(fpArm);
 var fpHold=new THREE.Group();fpHold.rotation.order='ZYX';fpScene.add(fpHold);
 var holdBase=null;
 const HOLD_BLOCK={x:.46,y:-.54,z:-.7,rx:.14,ry:Math.PI/4,rz:0};   // corner pose, top face peeking
-const HOLD_ITEM={x:.52,y:-.42,z:-.74,rx:0,ry:-.35,rz:-.3};        // sprite angled like a held tool
+const HOLD_ITEM={x:.66,y:-.44,z:-.74,rx:0,ry:-.3,rz:-1.5};        // mirrored sprite + negated roll = the exact mirror of
+                                                                  // the old pose: same diagonal, but the blade tip / guard
+                                                                  // prong now sits on the LEFT like vanilla; handle still
+                                                                  // dives off the corner, nudged a bit further right
 const holdCache={};
 function heldMesh(b){
   if(holdCache[b])return holdCache[b];
@@ -2178,7 +2204,9 @@ function heldMesh(b){
   if(ITEM_ART[b]){
     const tex=new THREE.CanvasTexture(itemCanvas(b));
     tex.magFilter=tex.minFilter=THREE.NearestFilter;
-    m=new THREE.Mesh(new THREE.PlaneGeometry(.62,.62),
+    const pg=new THREE.PlaneGeometry(.62,.62);
+    pg.scale(-1,1,1);                                  // mirror like vanilla's 1st-person item: the
+    m=new THREE.Mesh(pg,                               // sword's guard prong then pokes out LEFT
       new THREE.MeshBasicMaterial({map:tex,transparent:true,alphaTest:.4,side:THREE.DoubleSide}));
   }else{
     const g=new THREE.BoxGeometry(.42,.42,.42);
@@ -2350,6 +2378,7 @@ function openQuit(){
   if(quitOpen)return;
   quitOpen=true;                                 // keys stay remembered; updatePlayer()
   leftDown=false;stopMining();                   // ignores them while the prompt is up
+  snapshotWorld();                               // pausing saves — quitting from here can't lose progress
   infoEl.style.display='none';                   // never show the "Click to play" tips under the prompt
   if(document.pointerLockElement)document.exitPointerLock();
   quitEl.classList.add('show');play('uiClick',.4);}
@@ -2405,6 +2434,23 @@ const TIPS=['Tip: Watch out for zombies at night!','Tip: Hold left click to mine
   'Tip: Hold C to crouch — you won\'t fall off ledges while sneaking'];
 const GEN_STAGES=[[0,'Building terrain'],[40,'Carving lakes'],[58,'Growing trees'],
   [74,'Spawning villages'],[88,'Preparing spawn area']];
+// ---- single-player save: snapshot the session into the world entry (localStorage).
+// Terrain regenerates from the seed; we persist the block-edit diff + player state,
+// so you resume at the exact same coordinates with the same inventory and time of day.
+const packInv=a=>a.map(s=>s?[s.b,s.count]:0);
+function snapshotWorld(){
+  if(!curWorld||!inGame)return;
+  curWorld.save={
+    pos:[player.pos.x,player.pos.y,player.pos.z],
+    sp:[spawn.x,spawn.y,spawn.z],
+    yaw:player.yaw,pitch:player.pitch,view:player.view,
+    hp:player.hp,food:player.food,sel,
+    hotbar:packInv(hotbar),inv:packInv(invSlots),
+    dayFrac,edits:worldEdits};
+  curWorld.lastPlayed=Date.now();
+  saveWorlds();}
+addEventListener('beforeunload',snapshotWorld);   // closing the tab saves too
+document.addEventListener('visibilitychange',()=>{if(document.hidden)snapshotWorld();});
 function playWorld(w){
   curWorld=w;
   world.name=w.name;world.mode=w.mode;world.diff=w.diff;
@@ -2415,8 +2461,22 @@ function playWorld(w){
   showScreen(loadingEl);
   // let the loading screen paint before the heavy synchronous terrain pass
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    // the edit diff must be in place BEFORE resetWorld: findSpawn() already decorates
+    // the spawn-area chunks, and their saved edits have to replay during that pass
+    worldEdits=(w.save&&w.save.edits)||{};
     resetWorld(w.seed);
     resetInv();
+    if(w.save){                                 // resume exactly where the last session ended
+      const s=w.save;
+      player.pos.set(...s.pos);player.vel.set(0,0,0);
+      if(s.sp)spawn.set(...s.sp);
+      player.yaw=s.yaw;player.pitch=s.pitch;player.view=s.view||0;
+      player.hp=s.hp;player.food=s.food;
+      dayFrac=s.dayFrac;
+      hotbar.length=0;s.hotbar.forEach(v=>hotbar.push(v?{b:v[0],count:v[1]}:null));
+      s.inv.forEach((v,i)=>invSlots[i]=v?{b:v[0],count:v[1]}:null);
+      sel=Math.min(s.sel||0,hotbar.length-1);
+      drawHotbar();}
     const pcx=Math.floor(player.pos.x/CH),pcz=Math.floor(player.pos.z/CH),jobs=[];
     for(let r=0;r<=RENDER;r++)                  // mesh the spawn area ring by ring
       for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++)
@@ -2473,6 +2533,7 @@ function updateDebug(dt){
     `<span>Held: ${Object.keys(keys).filter(k=>keys[k]).join(' ')||'-'}</span>\n`+
     `<span>Last key: ${lastKey||'-'}</span>`;
 }
+let saveAcc=0;
 function tick(){
   requestAnimationFrame(tick);
   const dt=Math.min(clock.getDelta(),.05);
@@ -2481,7 +2542,8 @@ function tick(){
     updateSky(dt);updatePlayer(dt);updateMobs(dt);
     updateMining(dt);
     updateParticles(dt);
-    updateHighlight();}
+    updateHighlight();
+    if((saveAcc+=dt)>=10){saveAcc=0;snapshotWorld();}} // autosave every 10s, like vanilla's autosave
   if(invOpen&&invMode==='inv')updateInvPreview();
   updateDebug(dt);
   renderer.render(scene,camera);
