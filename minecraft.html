@@ -2193,10 +2193,10 @@ fpScene.add(fpArm);
 var fpHold=new THREE.Group();fpHold.rotation.order='ZYX';fpScene.add(fpHold);
 var holdBase=null;
 const HOLD_BLOCK={x:.46,y:-.54,z:-.7,rx:.14,ry:Math.PI/4,rz:0};   // corner pose, top face peeking
-const HOLD_ITEM={x:.66,y:-.44,z:-.74,rx:0,ry:-.3,rz:-1.5};        // mirrored sprite + negated roll = the exact mirror of
-                                                                  // the old pose: same diagonal, but the blade tip / guard
-                                                                  // prong now sits on the LEFT like vanilla; handle still
-                                                                  // dives off the corner, nudged a bit further right
+const HOLD_ITEM={x:.72,y:-.36,z:-.74,rx:0,ry:-.3,rz:-1.42};       // tilted so the handle swings LEFT and the blade tip
+                                                                  // leans against the screen border withOUT being cut off:
+                                                                  // nothing clips on the right, the tip just kisses the
+                                                                  // edge — mirrored sprite, guard prong on the LEFT
 const holdCache={};
 function heldMesh(b){
   if(holdCache[b])return holdCache[b];
@@ -2253,9 +2253,10 @@ function updateFPArm(dt){
   equipH+=THREE.MathUtils.clamp((holdShownKey===holdWantKey?1:0)-equipH,-8*dt,8*dt);
   if(holdShownKey!==holdWantKey&&equipH<.1)applyHeld();
   const dipY=.6*(1-equipH);                            // vanilla: y -= 0.6 * (1 - equipProgress)
-  const swX=-Math.sin(sq*Math.PI)*.14;                 // drift in toward the crosshair
-  const swY=Math.sin(sq*Math.PI*2)*.09;                // quick rise, then the chop dips low (vanilla 2π term)
-  const swZ=-Math.sin(sp*Math.PI)*.26;                 // punch INTO the screen — the arm stays rooted in the corner
+  // vanilla ItemRenderer swing translation, verbatim:
+  //   x = -0.4*sin(sqrt(p)*PI), y = 0.2*sin(sqrt(p)*2PI), z = -0.2*sin(p*PI)
+  const fS=Math.sin(sp*sp*Math.PI),f1S=Math.sin(sq*Math.PI);
+  const swX=-.4*f1S,swY=.2*Math.sin(sq*Math.PI*2),swZ=-.2*Math.sin(sp*Math.PI);
   // --- look sway: the hand lags behind camera motion, then springs back (momentum) ---
   const tgtX=THREE.MathUtils.clamp(lookDX*.0012,-.12,.12);   // target offset from this frame's look delta
   const tgtY=THREE.MathUtils.clamp(lookDY*.0012,-.12,.12);
@@ -2280,15 +2281,15 @@ function updateFPArm(dt){
                                                        // vs MC's pose stack, negative swept the arm off-screen right)
     FP_BASE.rz+Math.sin(sp*sp*Math.PI)*.35+swayX);     // wrist rolls into the strike (vanilla's 20° zRot, sp² easing;
                                                        // positive Z tips the fist in toward -X in three.js)
-  if(fpHold&&holdBase){                                // the held block/item rides the exact same motion
-    fpHold.position.set(
-      holdBase.x+swX-swayX+bobX,
-      holdBase.y+swY-swayY-bobY+idleY-dipY,
-      holdBase.z+swZ);
-    fpHold.rotation.set(
-      holdBase.rx-Math.sin(sq*Math.PI)*.45,
-      holdBase.ry+Math.sin(sq*Math.PI)*.9-swayX*1.5,
-      holdBase.rz+Math.sin(sp*sp*Math.PI)*.35+swayX);}
+  if(fpHold&&holdBase){                                // the held block/item rides the same offsets, but its
+    fpHold.position.set(                               // swing uses vanilla transformFirstPerson verbatim:
+      holdBase.x+swX-swayX+bobX,                       //   rotY 45+sin(p²π)*-20 | rotZ sin(√p·π)*-20
+      holdBase.y+swY-swayY-bobY+idleY-dipY,            //   rotX sin(√p·π)*-80  | rotY -45
+      holdBase.z+swZ);                                 // → deltas from rest: yaw 20°·f, roll 20°·f1, pitch 80°·f1
+    fpHold.rotation.set(                               // (Y/Z signs flipped for this scene's mirrored pose stack)
+      holdBase.rx-f1S*1.396,                           // the -80° overhead chop — the heart of the vanilla swing
+      holdBase.ry+fS*.35-swayX*1.5,                    // ±20° yaw sweep, eased by sin(p²·π) like vanilla
+      holdBase.rz+f1S*.35+swayX);}                     // ±20° roll, eased by sin(√p·π) like vanilla
 }
 const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
 pvCam.position.set(0,1.0,3.6);pvCam.lookAt(0,.95,0);
