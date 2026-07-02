@@ -18,7 +18,16 @@
   #cross{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#a3d9f2;font-size:30px;font-weight:bold;pointer-events:none;text-shadow:0 0 3px rgba(0,0,0,.6)}
   /* ---- Minecraft-style HUD: big hotbar + hearts ---- */
   #hud{position:fixed;bottom:6px;left:50%;transform:translateX(-50%)}
-  #itemname{text-align:center;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000;opacity:0;transition:opacity .6s;height:22px}
+  /* item-name flash above the hotbar — vanilla look: pixel font, white with the classic
+     dark-grey MC shadow, plus a soft dark halo so it stays readable over sky/sand/water glare.
+     Size scales with the viewport: normal on typical laptops, bigger on large screens.
+     Absolutely positioned OUT of the hud's flow: #hud shrink-wraps to its widest child,
+     so a long in-flow message here would permanently stretch the hotbar behind it. */
+  #itemname{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);
+    margin-bottom:6px;white-space:nowrap;pointer-events:none;
+    color:#fff;font-family:'VT323',monospace;font-size:clamp(20px,1.8vw,36px);line-height:1;
+    text-shadow:2px 2px 0 #3f3f3f,0 0 6px rgba(0,0,0,.9),1px 1px 4px rgba(0,0,0,.8);
+    opacity:0;transition:opacity .6s}
   #stats{display:flex;justify-content:space-between;align-items:flex-end;width:100%;box-sizing:border-box;margin:0 0 3px;padding:0 2px}
   #hearts{color:#f22;font-size:22px;text-shadow:2px 2px 0 #400;letter-spacing:1px;line-height:1}
   #hunger{display:flex;gap:1px;justify-content:flex-end}
@@ -185,7 +194,7 @@ Hold left click: mine blocks &middot; Click: attack<br>
 Right click: place (uses inventory!) &middot; Mine to collect more<br>
 1-8 / mouse wheel: select block &middot; Middle click: pick block<br>
 P: change camera view &middot; Hold C: crouch / sneak<br>
-E: inventory + crafting &middot; log&rarr;4 planks &middot; 2 planks&rarr;4 sticks<br>
+E / Tab / mouse side button: inventory + crafting &middot; log&rarr;4 planks &middot; 2 planks&rarr;4 sticks<br>
 4 planks &rarr; crafting table &middot; place it + right-click for 3x3 tool crafting!<br><br>
 Watch out for zombies at night!</div>
 <div id="menu">
@@ -715,7 +724,11 @@ function updateSky(dt){
   dayFrac=(dayFrac+dt/(2*(dayFrac<.5?DAY_LEN:NIGHT_LEN)))%1;  // sun is up for frac 0..0.5
   const ang=dayFrac*Math.PI*2,elev=Math.sin(ang);
   daylight=THREE.MathUtils.clamp((elev+.12)/.3,0,1);
-  sun.intensity=.15+.85*daylight;amb.intensity=.25+.55*daylight;
+  // vanilla-style exposure: ambient + sun*dot peaks at ~1.0 on top faces at noon, so
+  // textures render at their natural colours and never clip to white (over-driving
+  // past 1.0 blew bright tiles like sand out to a flat shiny cream, killing the grain;
+  // the baked SHADE vertex colours already carry the vanilla per-face ratios)
+  sun.intensity=.06+.19*daylight;amb.intensity=.25+.5*daylight;
   const sd=new THREE.Vector3(Math.cos(ang),elev,.35).normalize();
   sun.position.copy(player.pos).addScaledVector(sd,100);
   sun.target.position.copy(player.pos);
@@ -814,6 +827,7 @@ addEventListener('keydown',startMenuMusic);
 
 // ================= PLAYER =================
 const keys={};
+let sprintDT=false,lastWTap=0;   // double-tap-W sprint latch: held until W is released
 addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.code==='KeyW'){e.preventDefault();  // don't let Ctrl/Cmd+W close our tab
     if(inGame)openQuit();                        // in-game: confirm before quitting; lobby: just swallow it
@@ -821,17 +835,33 @@ addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;      // typing a world name, not playing
   if(e.code==='F3'){e.preventDefault();   // toggle debug overlay
     showDebug=!showDebug;debugEl.style.display=showDebug?'block':'none';return;}
-  if(e.code==='KeyE'&&inGame){e.preventDefault();toggleInv();return;}
+  lastKey=e.code+(e.repeat?' (rpt)':'');               // F3 key monitor: what the keyboard actually sent
+  // E or Tab both toggle the inventory. Tab is the anti-ghosting fallback: on many
+  // membrane keyboards W+Shift+Space+E is physically unreportable (the E press never
+  // reaches the browser), but Tab sits on a different matrix line and gets through.
+  if((e.code==='KeyE'||e.code==='Tab')&&inGame){e.preventDefault(); // ignore auto-repeat: holding the key
+    if(!e.repeat)toggleInv();return;}                  // while sprint-jumping must not re-toggle it shut
   if(invOpen){if(e.code==='Escape')closeInv();return;} // inventory captures the keyboard
+  if(e.code==='Escape'&&inGame){e.preventDefault();    // Esc is keyboard-locked in fullscreen, so it reaches
+    if(!e.repeat)quitOpen?closeQuit():openQuit();      // us instead of exiting fullscreen — use it as the
+    return;}                                           // pause key: toggle the quit prompt, like vanilla
   if(e.code==='KeyP'&&inGame){e.preventDefault();      // cycle 1st -> 3rd back -> 3rd front, like F5
+    if(e.repeat)return;
     player.view=(player.view+1)%3;play('uiClick',.4);
     flashMsg('Switched to '+['First Person','Third Person (Back)','Third Person (Front)'][player.view]);
     return;}
   if(e.code==='KeyC'&&inGame)e.preventDefault();       // crouch is hold-to-sneak (read from keys below)
+  // vanilla double-tap-W sprint: two W presses within 250ms start sprinting, no Shift
+  // needed. Fewer held keys = the E press survives keyboard ghosting during clutches.
+  if(e.code==='KeyW'&&!e.repeat&&inGame){
+    const now=performance.now();
+    if(now-lastWTap<250)sprintDT=true;
+    lastWTap=now;}
   keys[e.code]=true;
   if(e.code.startsWith('Digit')){const n=+e.code[5]-1;
     if(n>=0&&n<hotbar.length){sel=n;drawHotbar();showItemName();}}});
-addEventListener('keyup',e=>keys[e.code]=false);
+addEventListener('keyup',e=>{keys[e.code]=false;
+  if(e.code==='KeyW')sprintDT=false;});  // letting go of W ends a double-tap sprint, like vanilla
 // --- Stop Ctrl+W from closing our tab (lobby + in-game) ---
 // Chrome only lets a page intercept reserved shortcuts like Ctrl+W while it owns
 // the keyboard, which needs fullscreen + the Keyboard Lock API. So on the first
@@ -841,7 +871,10 @@ addEventListener('keyup',e=>keys[e.code]=false);
 function grabKeyboard(){
   if(document.fullscreenElement)return;                 // already owning the keyboard
   const el=document.documentElement;
-  const lock=()=>{try{navigator.keyboard&&navigator.keyboard.lock&&navigator.keyboard.lock(['KeyW']);}catch(_){}};
+  // Escape is locked too: in fullscreen Chrome then delivers it to the page instead of
+  // exiting fullscreen/pointer-lock, so Esc can act like vanilla's pause key (the quit
+  // prompt's "Exit Fullscreen" button remains the intentional way out; F11 also works)
+  const lock=()=>{try{navigator.keyboard&&navigator.keyboard.lock&&navigator.keyboard.lock(['KeyW','Escape']);}catch(_){}};
   try{const p=el.requestFullscreen&&el.requestFullscreen();(p&&p.then)?p.then(lock).catch(()=>{}):lock();}catch(_){}
 }
 addEventListener('pointerdown',grabKeyboard);
@@ -935,7 +968,9 @@ document.addEventListener('mousemove',e=>{if(document.pointerLockElement&&!invOp
 const infoEl=document.getElementById('info');
 document.addEventListener('pointerlockchange',()=>{
   if(vcOn&&!document.pointerLockElement){         // Esc force-broke the lock mid-inventory (the browser
-    vcOn=false;vcEl.style.display='none';}        // reserves Esc): fall back to the OS cursor gracefully
+    vcOn=false;vcEl.style.display='none';         // reserves Esc): fall back to the OS cursor gracefully
+    if(vcHover){vcHover.classList.remove('vhov');vcHover=null;}} // ...and drop the stuck hover highlight —
+                                                  // it made the hovered item look washed-out/transparent
   infoEl.style.display=(document.pointerLockElement||!inGame||invOpen)?'none':'block';});
 // Aim always comes from the player's eyes + look direction, never the camera —
 // so block-breaking and attacks work identically in 1st and 3rd person.
@@ -972,7 +1007,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
       if(i>=0){sel=i;drawHotbar();showItemName();}}
   }else if(e.button===2){
     const r=raycast();if(!r)return;
-    if(r.hit&&isDoor(gB(...r.hit))){toggleDoor(...r.hit);return;}
+    if(r.hit&&isDoor(gB(...r.hit))){player.swingT=SWING_DUR;toggleDoor(...r.hit);return;} // vanilla swings on use too
     if(r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
     if(!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
@@ -984,8 +1019,18 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(!isCreative()&&--it.count<=0)hotbar[sel]=null; // last one placed: slot frees up
     drawHotbar();
     setBlock(x,y,z,it.b);flush();
+    player.swingT=SWING_DUR;   // placing swings the arm (1st-person viewmodel + 3rd-person body), like vanilla
     if(!play(matFor(it.b).dig,.7,.8))SFX.place();}}); // vanilla: place sound = the block's dig family at fixed 0.8 pitch
 addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;});
+// ---- ghost-proof clutch binding: mouse side buttons (Back/Forward) toggle the inventory.
+// The mouse is a separate device, so no amount of held keyboard keys (W+Shift+Space...)
+// can stop these from getting through — guaranteed mid-parkour inventory access.
+addEventListener('mousedown',e=>{
+  if((e.button===3||e.button===4)&&inGame){e.preventDefault();toggleInv();}});
+addEventListener('mouseup',e=>{                    // swallow the browser's Back/Forward navigation
+  if(e.button===3||e.button===4)e.preventDefault();});
+addEventListener('auxclick',e=>{
+  if(e.button===3||e.button===4)e.preventDefault();});
 addEventListener('wheel',e=>{if(!document.pointerLockElement||invOpen)return; // lock is now HELD during
   sel=(sel+(e.deltaY>0?1:-1)+hotbar.length)%hotbar.length;drawHotbar();showItemName();}); // inventory — don't scroll the hotbar behind the UI
 function collidesP(){
@@ -1055,9 +1100,17 @@ function updatePlayer(dt){
   const fx=Math.floor(player.pos.x),fz=Math.floor(player.pos.z);
   const feetWater=gB(fx,Math.floor(player.pos.y+.4),fz)===WATERB;
   const headWater=gB(fx,Math.floor(player.pos.y+1.4),fz)===WATERB;
-  const inWater=feetWater||headWater;
+  // fractional submersion 0..1 — how deep the body sits below the local water surface
+  // (scan the column overlapping the body, so player-made pools work too). Water forces
+  // scale with this instead of switching on/off at a block edge, which kept the camera smooth
+  let surfY=-1;
+  for(let y=Math.floor(player.pos.y+1.4);y>=Math.floor(player.pos.y);y--)
+    if(gB(fx,y,fz)===WATERB){surfY=y+1;break;}
+  const sub=surfY<0?0:Math.min(1,(surfY-player.pos.y)/1.4);
+  const inWater=sub>0;
   let f=0,s=0;
-  if(keys.KeyW)f++;if(keys.KeyS)f--;if(keys.KeyD)s++;if(keys.KeyA)s--;
+  const ui=invOpen||quitOpen;   // a screen is up: held keys stay remembered but do nothing
+  if(!ui){if(keys.KeyW)f++;if(keys.KeyS)f--;if(keys.KeyD)s++;if(keys.KeyA)s--;}
   const sy=Math.sin(player.yaw),cy=Math.cos(player.yaw);
   let wx=-sy*f+cy*s,wz=-cy*f-sy*s;
   const l=Math.hypot(wx,wz)||1;wx/=l;wz/=l;
@@ -1077,11 +1130,11 @@ function updatePlayer(dt){
   const hbOff=angDelta(player.bodyYaw,player.yaw);    // how far the head currently leads the body
   if(hbOff>HEAD_TWIST)       player.bodyYaw=lerpAngle(player.bodyYaw,player.yaw-HEAD_TWIST,Math.min(1,dt*16));
   else if(hbOff<-HEAD_TWIST) player.bodyYaw=lerpAngle(player.bodyYaw,player.yaw+HEAD_TWIST,Math.min(1,dt*16));
-  player.crouching=!!keys.KeyC;                        // hold C to sneak, like vanilla (no toggle = no shake)
+  player.crouching=!ui&&!!keys.KeyC;                   // hold C to sneak, like vanilla (no toggle = no shake)
   const crouch=player.crouching&&player.onGround&&!inWater;
   player.crouchAmt+=((crouch?1:0)-player.crouchAmt)*Math.min(1,dt*12); // ease the sneak crouch
-  const sprint=(keys.ShiftLeft||keys.ShiftRight)&&f>0&&!inWater&&!crouch; // can't sprint while sneaking
-  const sp=(inWater?3:crouch?1.5:(sprint?7.2:4.6))*(f||s?1:0); // sneak walks slowly, like vanilla
+  const sprint=(keys.ShiftLeft||keys.ShiftRight||sprintDT)&&f>0&&!crouch; // Shift OR double-tap W; can't sprint while sneaking (sprint-swimming allowed, like vanilla 1.13+)
+  const sp=(inWater?(sprint?4.5:2.2):crouch?1.5:(sprint?7.2:4.6))*(f||s?1:0); // water: vanilla surface-swim 2.2, sprint-swim capped below land run (no prone mode); sneak walks slowly, like vanilla
   camera.fov+=((sprint?85:75)-camera.fov)*Math.min(1,dt*8);
   camera.updateProjectionMatrix();
   player.vel.x+=(wx*sp-player.vel.x)*Math.min(1,dt*10);
@@ -1110,20 +1163,38 @@ function updatePlayer(dt){
   player.pos.z+=mvz;
   if(collidesP()){player.pos.z-=mvz;player.vel.z=0;hitWall=true;}
    if(inWater){                                    // Minecraft-style swimming
-    player.vel.y-=7*dt;                           // very light gravity
-    player.vel.y=Math.max(player.vel.y,-.85);     // sink slowly, like Minecraft
-    if(keys.Space)player.vel.y+=(3.1-player.vel.y)*Math.min(1,dt*10); // swim up a bit faster
-    else player.vel.y-=player.vel.y*2*dt;
-    if(hitWall&&feetWater&&!headWater&&(f||s))player.vel.y=5.2; // climb out at an edge
+    // the surface hop: swimming up from underwater ARMS it; the instant the body starts
+    // breaking the surface (sub<1) it fires a FULL land-strength jump that flies ballistic
+    // (water applies no drag mid-hop) — so jumping out of deep water is exactly as tall as
+    // jumping in the shallows, and holding Space porpoises: leap, splash, sink, re-arm, leap
+    if(player.hopping&&player.vel.y>0)
+      player.vel.y-=24*dt;                        // hop in flight: pure ballistic, like a land jump
+    else{
+    player.hopping=false;
+    player.vel.y-=(24-16*sub)*dt;                 // air gravity fading to water gravity with depth
+    if(keys.Space&&!ui){
+      if(player.onGround&&!headWater)player.vel.y=8;      // feet on the bottom, head clear: normal jump
+      else if(sub>=1){player.vel.y+=20*dt;player.hopArmed=true;} // fully under: rise, and arm the hop
+      else if(player.hopArmed){                           // breaking the surface from below: jump!
+        player.vel.y=8;player.hopArmed=false;player.hopping=true;}
+      else player.vel.y+=16*sub*dt;}                      // partially submerged: buoyant tread
+    player.vel.y-=player.vel.y*Math.min(1,4.5*sub*dt);
+    if(hitWall&&feetWater&&!headWater&&(f||s))player.vel.y=5.2; // climb out at an edge (vanilla jump-out-of-water hop)
+    }
   }else{
     player.vel.y-=24*dt;
-    if(keys.Space&&player.onGround)player.vel.y=8;}
+    if(keys.Space&&!ui&&player.onGround)player.vel.y=8;}
   player.pos.y+=player.vel.y*dt;player.onGround=false;
   if(collidesP()){
     if(player.vel.y<0)player.onGround=true;
     player.pos.y-=player.vel.y*dt;player.vel.y=0;}
-  if(inWater&&!player.wasInWater)S('splash',.5,()=>SFX.splash(.4)); // entry splash
-  if(inWater&&sp>0){player.swimT-=dt;
+  // entry splash only on a genuine fall-in, volume scaled by impact speed like vanilla,
+  // with a cooldown so porpoise-bouncing splashes naturally but can never machine-gun
+  player.splashT=Math.max(0,(player.splashT||0)-dt);
+  if(inWater&&!player.wasInWater&&player.vel.y<-3&&!player.splashT){
+    player.splashT=.9;
+    S('splash',Math.min(.9,.2-player.vel.y*.07),()=>SFX.splash(.4));}
+  if(inWater&&(sp>0||Math.abs(player.vel.y)>.8)){player.swimT-=dt; // paddle ticks only while actually moving — a settled float is silent
     if(player.swimT<=0){player.swimT=.45;S('swim',.35,SFX.swim);}}
   player.wasInWater=inWater;
   if(player.onGround&&!inWater&&sp>0){               // footsteps matched to the block underfoot
@@ -1686,18 +1757,28 @@ function updateMining(dt){
       x+.15+Math.random()*.7,y+.15+Math.random()*.7,z+.15+Math.random()*.7,null,m.col,true);
     const d=dropFor(b);if(d)addDrop(d);
     stopMining();}}
+// vanilla-style local density cap: a spawn attempt is discarded when the spot already
+// has a full pack (4, sheep pack size) of that category within a chunk-sized area, so
+// mobs settle into small scattered groups instead of piling up around an AFK player
+function crowded(x,z,zombie){
+  let n=0;
+  for(const m of mobs){
+    const animal=m.type==='pig'||m.type==='sheep'||m.type==='chicken';
+    if((zombie?m.type==='zombie':animal)&&
+       Math.abs(m.pos.x-x)<16&&Math.abs(m.pos.z-z)<16&&++n>=4)return true;}
+  return false;}
 function spawnAnimal(){
   const a=Math.random()*Math.PI*2,d2=14+Math.random()*14;
   const x=Math.floor(player.pos.x+Math.sin(a)*d2),z=Math.floor(player.pos.z+Math.cos(a)*d2);
   const h=groundH(x,z);
-  if(h>WATER&&gB(x,h,z)===GRASS){
+  if(h>WATER&&gB(x,h,z)===GRASS&&!crowded(x+.5,z+.5,false)){
     const r=Math.random(),type=r<1/3?'pig':r<2/3?'sheep':'chicken'; // equal odds for all three
     mobs.push(new Mob(type,x+.5,h+1,z+.5));}}
 
 function spawnZombie(){
   const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
-  const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d); 
-  const h=groundH(x,z);if(h<=WATER)return;
+  const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
+  const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
   mobs.push(new Mob('zombie',x+.5,h+1,z+.5));}
   const particles=[];
 const flameG=new THREE.BoxGeometry(.12,.12,.12);
@@ -1990,7 +2071,8 @@ function openInv(mode){
     moveVC(innerWidth/2,innerHeight/2);            // exit-fullscreen overlay can never be triggered;
     vcEl.style.display='block';}                   // cursor starts centered, like vanilla
   else vcOn=false;                                 // opened without lock: plain OS cursor fallback
-  for(const k in keys)keys[k]=false;               // stop walking while the screen is up
+  // NOTE: keys are NOT wiped — updatePlayer() ignores them while a screen is up, so
+  // still-held Shift+W resumes sprinting the instant the inventory closes (vanilla clutch)
   leftDown=false;stopMining();
   infoEl.style.display='none';
   updateCraft();invEl.classList.add('show');
@@ -2200,9 +2282,8 @@ $('bQuit').onclick=()=>{window.open('','_self');window.close();setTimeout(()=>{$
 const quitEl=$('quitConfirm');
 function openQuit(){
   if(quitOpen)return;
-  quitOpen=true;
-  for(const k in keys)keys[k]=false;             // stop walking while the prompt is up
-  leftDown=false;stopMining();
+  quitOpen=true;                                 // keys stay remembered; updatePlayer()
+  leftDown=false;stopMining();                   // ignores them while the prompt is up
   if(document.pointerLockElement)document.exitPointerLock();
   quitEl.classList.add('show');play('uiClick',.4);}
 function closeQuit(){                             // "No" — back to the game
@@ -2248,7 +2329,7 @@ addEventListener('keydown',e=>{                // Esc steps back through the men
 const TIPS=['Tip: Watch out for zombies at night!','Tip: Hold left click to mine blocks',
   'Tip: Right click places the selected block','Tip: Mine blocks to collect more of them',
   'Tip: Press 1-8 or scroll to switch blocks','Tip: Middle click picks the block you aim at',
-  'Tip: Villages spawn villagers — say hi!','Tip: Hold Shift while walking to sprint',
+  'Tip: Villages spawn villagers — say hi!','Tip: Hold Shift or double-tap W to sprint',
   'Tip: Press E and craft a log into 4 planks','Tip: 2 planks stacked in the crafting grid make 4 sticks',
   'Tip: 4 planks in a square craft a crafting table',
   'Tip: Right-click a placed crafting table to craft tools in its 3x3 grid',
@@ -2289,7 +2370,10 @@ function enterGame(){
   inGame=true;stopMenuMusic();
   showScreen(null);
   infoEl.style.display='block';
-  audio().resume();}
+  audio().resume();
+  // proof-of-version banner: if you don't see this after joining a world,
+  // the browser is running a stale/cached or different copy of this file
+  setTimeout(()=>flashMsg('CLUTCH FIX v3 ACTIVE — inventory: E / Tab / mouse side btn'),800);}
 function hardcoreDeath(){                       // hardcore: death deletes the world
   player.hp=20;player.food=20;inGame=false;
   if(invOpen)closeInv();
@@ -2301,8 +2385,8 @@ function hardcoreDeath(){                       // hardcore: death deletes the w
   startMenuMusic();}
 const clock=new THREE.Clock();
 // ---- F3 debug overlay: fps, coordinates, version (a trimmed MC F3 screen) ----
-const MC_VERSION='1.21.11';
-let showDebug=false,fps=0,fpsAcc=0,fpsFrames=0,debugAcc=0;
+const MC_VERSION='1.21.11 (clutch-fix v3)';
+let showDebug=false,fps=0,fpsAcc=0,fpsFrames=0,debugAcc=0,lastKey='';
 const debugEl=document.getElementById('debug');
 function updateDebug(dt){
   fpsAcc+=dt;fpsFrames++;                       // average fps over ~0.5s windows so it doesn't jitter
@@ -2315,7 +2399,12 @@ function updateDebug(dt){
     `<span>${fps} fps</span>\n`+
     `<span>Minecraft ${MC_VERSION}</span>\n`+
     `<span>XYZ: ${p.x.toFixed(3)} / ${p.y.toFixed(3)} / ${p.z.toFixed(3)}</span>\n`+
-    `<span>Block: ${Math.floor(p.x)} ${Math.floor(p.y)} ${Math.floor(p.z)}</span>`;
+    `<span>Block: ${Math.floor(p.x)} ${Math.floor(p.y)} ${Math.floor(p.z)}</span>\n`+
+    // ghosting diagnostic: held = keys the browser thinks are down; last = most recent
+    // keydown received. Sprint-jump and press E — if "last" never shows KeyE, the
+    // keyboard hardware dropped it (ghosting), not the game.
+    `<span>Held: ${Object.keys(keys).filter(k=>keys[k]).join(' ')||'-'}</span>\n`+
+    `<span>Last key: ${lastKey||'-'}</span>`;
 }
 function tick(){
   requestAnimationFrame(tick);
