@@ -99,7 +99,7 @@
   .islot{position:relative;width:48px;height:48px;background:#8b8b8b;
     box-shadow:inset 3px 3px 0 #373737,inset -3px -3px 0 #fff;
     display:flex;align-items:center;justify-content:center}
-  .islot:hover::after{content:'';position:absolute;inset:3px;background:rgba(255,255,255,.45);pointer-events:none}
+  .islot:hover::after,.islot.vhov::after{content:'';position:absolute;inset:3px;background:rgba(255,255,255,.45);pointer-events:none} /* .vhov = manual hover for the virtual cursor (:hover never fires under pointer lock) */
   .islot img,.islot canvas{width:40px;height:40px;image-rendering:pixelated;pointer-events:none;position:static}
   .islot .cnt{font-size:18px;right:3px;bottom:0;pointer-events:none}
   #invTop{display:flex;align-items:flex-start;margin-bottom:18px}
@@ -123,6 +123,8 @@
   #heldItem{position:fixed;z-index:7;width:44px;height:44px;pointer-events:none;display:none}
   #heldItem img{width:44px;height:44px;image-rendering:pixelated}
   #heldItem .cnt{font-size:18px}
+  /* game-drawn virtual cursor: shown while the inventory keeps pointer lock (fullscreen fix) */
+  #vcursor{position:fixed;z-index:40;left:0;top:0;pointer-events:none;display:none}
   /* ---- in-game Quit confirmation (Ctrl+W) ---- */
   #quitConfirm{position:fixed;inset:0;z-index:12;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.72);image-rendering:pixelated}
   #quitConfirm.show{display:flex}
@@ -176,6 +178,7 @@
     <div id="invHotRow"></div>
   </div>
   <div id="heldItem"></div>
+  <div id="vcursor"><svg width="18" height="26" viewBox="0 0 18 26"><polygon points="1,0 1,20 6,15 9.5,24 13,22.5 9.4,13.5 16,13.5" fill="#fff" stroke="#000" stroke-width="1.6"/></svg></div>
 </div>
 <div id="info"><b>Minecraft</b><br><br>Click to play<br>WASD move &middot; Space jump / swim up<br>
 Hold left click: mine blocks &middot; Click: attack<br>
@@ -923,12 +926,16 @@ function randomRespawn(){                          // drop in at fresh coords on
   player.pos.copy(spawn);player.vel.set(0,0,0);     // fallback: original spawn
 }
 let lookDX=0,lookDY=0;                            // recent mouse-look motion, for first-person hand sway
-document.addEventListener('mousemove',e=>{if(document.pointerLockElement){
+document.addEventListener('mousemove',e=>{if(document.pointerLockElement&&!invOpen){ // the lock is HELD while the
+  // inventory is open (virtual-cursor fullscreen fix) — those deltas steer the inventory
+  // cursor only, so they must NOT also turn the camera / sway the hand behind the UI
   player.yaw-=e.movementX*.0024;
   player.pitch=THREE.MathUtils.clamp(player.pitch-e.movementY*.0024,-1.55,1.55);
   lookDX+=e.movementX;lookDY+=e.movementY;}});    // accumulate this frame's look motion (decayed in updateFPArm)
 const infoEl=document.getElementById('info');
 document.addEventListener('pointerlockchange',()=>{
+  if(vcOn&&!document.pointerLockElement){         // Esc force-broke the lock mid-inventory (the browser
+    vcOn=false;vcEl.style.display='none';}        // reserves Esc): fall back to the OS cursor gracefully
   infoEl.style.display=(document.pointerLockElement||!inGame||invOpen)?'none':'block';});
 // Aim always comes from the player's eyes + look direction, never the camera —
 // so block-breaking and attacks work identically in 1st and 3rd person.
@@ -979,8 +986,8 @@ renderer.domElement.addEventListener('mousedown',e=>{
     setBlock(x,y,z,it.b);flush();
     if(!play(matFor(it.b).dig,.7,.8))SFX.place();}}); // vanilla: place sound = the block's dig family at fixed 0.8 pitch
 addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;});
-addEventListener('wheel',e=>{if(!document.pointerLockElement)return;
-  sel=(sel+(e.deltaY>0?1:-1)+hotbar.length)%hotbar.length;drawHotbar();showItemName();});
+addEventListener('wheel',e=>{if(!document.pointerLockElement||invOpen)return; // lock is now HELD during
+  sel=(sel+(e.deltaY>0?1:-1)+hotbar.length)%hotbar.length;drawHotbar();showItemName();}); // inventory — don't scroll the hotbar behind the UI
 function collidesP(){
   const p=player.pos,r=.3;
   for(const dx of[-r,r])for(const dz of[-r,r])for(const dy of[.05,.9,1.75])
@@ -1943,14 +1950,46 @@ function refreshInv(){
     d.title=it?BNAME[it.b]||'Block':'';});
   heldEl.style.display=heldStack?'block':'none';
   if(heldStack)heldEl.innerHTML=slotHTML(heldStack);}
-addEventListener('mousemove',e=>{invMx=e.clientX;invMy=e.clientY;
+// ---- virtual cursor (fullscreen fix): in fullscreen, sliding the OS cursor to the top edge
+// pops the browser's native "exit fullscreen" (X) overlay — browser chrome that no CSS/JS can
+// suppress. So the inventory KEEPS pointer lock and steers a game-drawn cursor from raw
+// movementX/Y instead (real Minecraft renders its own cursor for the same reason): the OS
+// pointer never actually moves, so it can never reach a screen edge to trigger the overlay.
+const vcEl=document.getElementById('vcursor');
+let vcOn=false,vcHover=null;
+function moveVC(x,y){
+  invMx=x;invMy=y;                                    // held stack + player preview track these coords
+  vcEl.style.left=x+'px';vcEl.style.top=y+'px';
+  heldEl.style.left=(x-22)+'px';heldEl.style.top=(y-22)+'px';
+  const el=document.elementFromPoint(x,y),s=el&&el.closest('.islot');
+  if(s!==vcHover){                                    // :hover never fires while locked — do it manually
+    if(vcHover)vcHover.classList.remove('vhov');
+    if((vcHover=s))s.classList.add('vhov');}}
+addEventListener('mousemove',e=>{
+  if(vcOn&&document.pointerLockElement){              // locked: steer the virtual cursor from deltas,
+    moveVC(Math.max(0,Math.min(innerWidth-1,invMx+e.movementX)),   // clamped inside the window
+           Math.max(0,Math.min(innerHeight-1,invMy+e.movementY)));
+    return;}
+  invMx=e.clientX;invMy=e.clientY;
   if(invOpen){heldEl.style.left=(invMx-22)+'px';heldEl.style.top=(invMy-22)+'px';}});
+// under pointer lock ALL mouse events target the locked canvas, so the slots' own mousedown
+// handlers never fire — hit-test the virtual cursor position and route the click ourselves
+addEventListener('mousedown',e=>{
+  if(!(vcOn&&invOpen&&document.pointerLockElement))return;
+  e.preventDefault();e.stopPropagation();             // don't let the canvas handler see it
+  const el=document.elementFromPoint(invMx,invMy),s=el&&el.closest('.islot');
+  if(s)slotClick(s.dataset.list,+s.dataset.idx,e);},true);
+addEventListener('contextmenu',e=>{if(vcOn&&invOpen)e.preventDefault();}); // right-click = place-one, not a browser menu
 function openInv(mode){
   if(invOpen)return;
   invOpen=true;invMode=mode==='table'?'table':'inv';
   document.getElementById('invTop').style.display=invMode==='inv'?'flex':'none';
   document.getElementById('tableTop').style.display=invMode==='table'?'block':'none';
-  if(document.pointerLockElement)document.exitPointerLock();
+  if(document.pointerLockElement){                 // normal in-game open: KEEP the pointer lock and
+    vcOn=true;                                     // switch to the virtual cursor, so the browser's
+    moveVC(innerWidth/2,innerHeight/2);            // exit-fullscreen overlay can never be triggered;
+    vcEl.style.display='block';}                   // cursor starts centered, like vanilla
+  else vcOn=false;                                 // opened without lock: plain OS cursor fallback
   for(const k in keys)keys[k]=false;               // stop walking while the screen is up
   leftDown=false;stopMining();
   infoEl.style.display='none';
@@ -1969,15 +2008,20 @@ addEventListener('resize',fitInv);
 function closeInv(){
   if(!invOpen)return;
   invOpen=false;invEl.classList.remove('show');
+  vcOn=false;vcEl.style.display='none';                // retire the virtual cursor
+  if(vcHover){vcHover.classList.remove('vhov');vcHover=null;}
   if(heldStack){addStack(heldStack);heldStack=null;}   // vanilla hands leftovers back
   craftSlots.forEach((s,i)=>{if(s){addStack(s);craftSlots[i]=null;}});
   tableSlots.forEach((s,i)=>{if(s){addStack(s);tableSlots[i]=null;}});
   craftOut=null;drawHotbar();play('uiClick',.4);
-  if(inGame)renderer.domElement.requestPointerLock();}
+  if(inGame&&!document.pointerLockElement)renderer.domElement.requestPointerLock();} // usually still locked now
 const toggleInv=()=>invOpen?closeInv():openInv();
 // ---- live player preview: the game's own humanoid rig in Steve colours ----
 const pvScene=new THREE.Scene();
 const steve=humanoid('#c68a64','#0fa9a9','#3d4aaa',{arm:'#0fa9a9'});
+steve.head.rotation.order='YXZ'; // yaw before pitch, like pbody.head — the default XYZ order applied
+                                 // the nod about the UN-yawed axis, so diagonal cursor positions
+                                 // (e.g. bottom-right) rolled the head sideways and the face looked sheared
 // Steve head detailing — shared by the inventory preview and the 3rd-person body so they
 // stay in sync. The hair is a SINGLE "helmet" shell wrapping the top, back and sides as one
 // box (no thin protruding side slabs — those darker side-fins were the ugly vertical lines),
@@ -1988,12 +2032,16 @@ function addSteveHead(h){const hair='#523c25',skin='#c68a64'; // warm medium-bro
                                                         // (sides + back) show the skin head cube, like vanilla's hairline
  h.add(part(.26,.14,.02,hair,0,.07,-.262));             // nape: hair point down the centre of the back,
                                                         // leaving only the bottom-left/right corners as skin
- h.add(part(.42,.40,.03,skin,0,.20,.272));              // face: skin plate below the fringe
+ // face layers sit nearly FLUSH, each ~.01 proud of the layer behind (hair shell front .27 →
+ // plate front .277 → feature fronts .287) — just enough to avoid z-fighting. The old offsets
+ // floated the eyes .065 in front of the head cube, so any off-axis head angle showed the
+ // eye plates edge-on hovering in mid-air ("ghost eyes"); vanilla's face is flat texture.
+ h.add(part(.42,.40,.03,skin,0,.20,.262));              // face: skin plate below the fringe
  for(const s of[-1,1]){
-   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.30)); // eye whites (outer)
-   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.30));}// pupils (inner, nose between)
- h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.30));         // nose
- h.add(part(.19,.07,.03,'#6b4533',0,.035,.30));}         // mouth/beard patch
+   h.add(part(.065,.065,.03,'#ffffff',s*.156,.22,.272)); // eye whites (outer)
+   h.add(part(.065,.065,.03,'#4a3aa5',s*.094,.22,.272));}// pupils (inner, nose between)
+ h.add(part(.13,.065,.03,'#9c6b4d',0,.155,.272));         // nose
+ h.add(part(.19,.07,.03,'#6b4533',0,.035,.272));}         // mouth/beard patch
 addSteveHead(steve.head);
 pvScene.add(steve.g);
 // ---- third-person player body: the same humanoid rig, shown only in 3rd-person view ----
@@ -2019,7 +2067,9 @@ const fpScene=new THREE.Scene();
 const fpCam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,10);
 const fpArm=new THREE.Group();                       // pivot at the shoulder (down in the corner)
 fpArm.rotation.order='ZYX';
-fpArm.add(part(.2,.5,.2,'#c68a64',0,.25,0));         // all skin — bare forearm + fist, no sleeve (short-sleeve is rolled off-screen)
+fpArm.add(part(.2,.95,.2,'#c68a64',0,.025,0));       // all skin — bare forearm + fist, no sleeve; extends well BELOW the
+                                                     // shoulder pivot (local -.45→.5) so the cut-off end can never rise
+                                                     // into view mid-swing — no more floating severed arm
 // rest pose: reaches UP-AND-FORWARD toward the crosshair (rx tips it forward so the fist
 // leads instead of pointing straight up), tucked into the bottom-right corner, clear of the hotbar
 const FP_BASE={x:.5,y:-.66,z:-.72,rx:-.85,ry:-.28,rz:.24};
@@ -2029,10 +2079,16 @@ fpArm.position.set(FP_BASE.x,FP_BASE.y,FP_BASE.z);
 fpArm.rotation.set(FP_BASE.rx,FP_BASE.ry,FP_BASE.rz);
 fpScene.add(fpArm);
 function updateFPArm(dt){
-  // swingT (shared with the 3rd-person swing) drives a vanilla mining/attack arc:
-  // the fist punches up-and-forward toward the crosshair, then eases back.
+  // swingT (shared with the 3rd-person swing) drives a vanilla mining/attack arc —
+  // a port of ItemInHandRenderer.renderPlayerArm: the fist punches IN toward the
+  // crosshair (deeper into the screen, NEVER toward the camera) while sweeping
+  // across and dipping, then eases back. The sqrt easing front-loads the strike
+  // so it snaps out fast and settles slow, like vanilla.
   const sp=player.swingT>0?1-player.swingT/SWING_DUR:0; // 0→1 across one swing, 0 at rest
-  const arc=Math.sin(sp*Math.PI);                      // smooth 0→1→0 over the swing
+  const sq=Math.sqrt(sp);
+  const swX=-Math.sin(sq*Math.PI)*.14;                 // drift in toward the crosshair
+  const swY=Math.sin(sq*Math.PI*2)*.09;                // quick rise, then the chop dips low (vanilla 2π term)
+  const swZ=-Math.sin(sp*Math.PI)*.26;                 // punch INTO the screen — the arm stays rooted in the corner
   // --- look sway: the hand lags behind camera motion, then springs back (momentum) ---
   const tgtX=THREE.MathUtils.clamp(lookDX*.0012,-.12,.12);   // target offset from this frame's look delta
   const tgtY=THREE.MathUtils.clamp(lookDY*.0012,-.12,.12);
@@ -2046,10 +2102,17 @@ function updateFPArm(dt){
   // idle breathing when standing still
   const idleY=Math.sin(player.armAge*.067)*.006*(1-spd);
   fpArm.position.set(
-    FP_BASE.x-arc*.05-swayX+bobX,
-    FP_BASE.y+arc*.16-swayY-bobY+idleY,
-    FP_BASE.z+arc*.12);
-  fpArm.rotation.set(FP_BASE.rx-arc*.7,FP_BASE.ry-swayX*1.5,FP_BASE.rz+arc*.25+swayX);
+    FP_BASE.x+swX-swayX+bobX,
+    FP_BASE.y+swY-swayY-bobY+idleY,
+    FP_BASE.z+swZ);
+  fpArm.rotation.set(
+    FP_BASE.rx-Math.sin(sq*Math.PI)*.45,               // tip forward so the fist leads the punch (kept gentle —
+                                                       // the old -.7 laid the arm flat and exposed its underside)
+    FP_BASE.ry+Math.sin(sq*Math.PI)*.9-swayX*1.5,      // sweep across toward the crosshair (vanilla's 70° yaw arc;
+                                                       // POSITIVE here — this scene's Y-rotation sign is mirrored
+                                                       // vs MC's pose stack, negative swept the arm off-screen right)
+    FP_BASE.rz+Math.sin(sp*sp*Math.PI)*.35+swayX);     // wrist rolls into the strike (vanilla's 20° zRot, sp² easing;
+                                                       // positive Z tips the fist in toward -X in three.js)
 }
 const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
 pvCam.position.set(0,1.0,3.6);pvCam.lookAt(0,.95,0);
