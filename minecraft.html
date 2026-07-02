@@ -971,7 +971,7 @@ document.addEventListener('pointerlockchange',()=>{
     vcOn=false;vcEl.style.display='none';         // reserves Esc): fall back to the OS cursor gracefully
     if(vcHover){vcHover.classList.remove('vhov');vcHover=null;}} // ...and drop the stuck hover highlight —
                                                   // it made the hovered item look washed-out/transparent
-  infoEl.style.display=(document.pointerLockElement||!inGame||invOpen)?'none':'block';});
+  infoEl.style.display=(document.pointerLockElement||!inGame||invOpen||quitOpen)?'none':'block';});
 // Aim always comes from the player's eyes + look direction, never the camera —
 // so block-breaking and attacks work identically in 1st and 3rd person.
 const aimOrigin=new THREE.Vector3(),aimDir=new THREE.Vector3();
@@ -1867,12 +1867,13 @@ const ITEM_ART={
   [WAXE_I]:['................','.........ee.....','........egge....','.......egmfe....','......egmmmad...','......hgfmimb...','.......hhamimh..','........adbmmh..','.......acb.hh...','......adb.......','.....adb........','....acb.........','...adb..........','..acb...........','..bb............','................'],
   [WSHOVEL_I]:['................','................','...........eeh..','..........eggmh.','.........egfmgh.','........egfmfgh.','.........amfgh..','........acbgh...','.......acb.h....','......adb.......','.....acb........','....adb.........','..aacb..........','..acb...........','...bb...........','................'],
   [WHOE_I]:['................','.......eee......','......enffe.....','.......hhmfead..','.........hmmnh..','..........afmh..','.........adhh...','........anh.....','.......adh......','......anh.......','.....adh........','....anh.........','...adh..........','..anh...........','..hh............','................']};
-function makeItemIcon(id){
+function itemCanvas(id){                       // shared by the hotbar icons and the 1st-person hand sprite
   const rows=ITEM_ART[id],c=document.createElement('canvas');c.width=c.height=16;
   const g=c.getContext('2d');
   rows.forEach((r,y)=>{for(let x=0;x<16;x++)
     if(r[x]!=='.'){g.fillStyle=ITEM_PAL[r[x]];g.fillRect(x,y,1,1);}});
-  return c.toDataURL();}
+  return c;}
+const makeItemIcon=id=>itemCanvas(id).toDataURL();
 const ICONS={};
 const iconFor=b=>ICONS[b]||(ICONS[b]=ITEM_ART[b]?makeItemIcon(b):makeBlockIcon(b));
 let sel=0;
@@ -1884,6 +1885,7 @@ function drawHotbar(){
       d.innerHTML='<img class="sw" src="'+iconFor(it.b)+'">'+
         (it.count>1&&!isCreative()?'<span class="cnt">'+it.count+'</span>':'');
     el.appendChild(d);});
+  updateFPHold();                              // keep the 1st-person hand in sync with the selection
   if(invOpen)refreshInv();}                    // keep the inventory screen in sync
 let nameT=0;
 function showItemName(){                      // vanilla: selected item name flashes above the hotbar
@@ -2160,6 +2162,57 @@ let swayX=0,swayY=0,walkBob=0;
 fpArm.position.set(FP_BASE.x,FP_BASE.y,FP_BASE.z);
 fpArm.rotation.set(FP_BASE.rx,FP_BASE.ry,FP_BASE.rz);
 fpScene.add(fpArm);
+// ---- first-person held block / item, like vanilla's viewmodel ----
+// a selected BLOCK shows as a mini cube built from its real atlas faces (top + two
+// sides visible, vanilla-style tilt) and replaces the bare arm; a 2D ITEM (tools,
+// sticks) shows as its flat pixel sprite; an empty slot shows the arm as before.
+// The cube/sprite rides the same swing + sway + walk-bob offsets as the arm.
+var fpHold=new THREE.Group();fpHold.rotation.order='ZYX';fpScene.add(fpHold);
+var holdBase=null;
+const HOLD_BLOCK={x:.46,y:-.54,z:-.7,rx:.14,ry:Math.PI/4,rz:0};   // corner pose, top face peeking
+const HOLD_ITEM={x:.52,y:-.42,z:-.74,rx:0,ry:-.35,rz:-.3};        // sprite angled like a held tool
+const holdCache={};
+function heldMesh(b){
+  if(holdCache[b])return holdCache[b];
+  let m;
+  if(ITEM_ART[b]){
+    const tex=new THREE.CanvasTexture(itemCanvas(b));
+    tex.magFilter=tex.minFilter=THREE.NearestFilter;
+    m=new THREE.Mesh(new THREE.PlaneGeometry(.62,.62),
+      new THREE.MeshBasicMaterial({map:tex,transparent:true,alphaTest:.4,side:THREE.DoubleSide}));
+  }else{
+    const g=new THREE.BoxGeometry(.42,.42,.42);
+    const uv=g.attributes.uv,col=new Float32Array(uv.count*3);
+    const F=[1,0,3,2,5,4];   // BoxGeometry face order (+x,-x,+y,-y,+z,-z) -> game face ids
+    for(let f=0;f<6;f++){
+      const t=tileFor(b,F[f]),tc=t%AT,tr=(t/AT)|0,sh=SHADE[F[f]];
+      for(let v=0;v<4;v++){const i=f*4+v;
+        uv.setXY(i,(tc+uv.getX(i))/AT,(AT-tr-1+uv.getY(i))/AT); // remap 0..1 face UVs into the atlas tile
+        col[i*3]=col[i*3+1]=col[i*3+2]=sh;}}                    // bake the vanilla per-face shading
+    g.setAttribute('color',new THREE.BufferAttribute(col,3));
+    m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({map:atlasTex,vertexColors:true,alphaTest:.3}));}
+  return holdCache[b]=m;}
+// vanilla re-equip animation (HeldItemRenderer.updateHeldItems): equip progress eases
+// toward 1 while the shown stack matches the selection and toward 0 once it differs
+// (clamped ±0.4 per tick = ±8/s); when it dips below 0.1 the model swaps, then rises.
+// The render pass drops the whole hand by 0.6*(1-progress) — vanilla's exact offset.
+var holdWantKey=null,holdWantB=null,holdShownKey=null,equipH=0; // 0 start: the hand rises on world join
+function updateFPHold(){                       // called from drawHotbar: records what SHOULD be in
+  if(!fpHold)return;                           // hand — the actual swap waits for the dip's bottom
+  const it=hotbar[sel],show=it&&(it.count>0||isCreative());
+  holdWantKey=show?sel+'/'+it.b:null;          // the slot is part of the key, so switching between
+  holdWantB=show?it.b:null;}                   // two stacks of the SAME block still re-equips, like vanilla
+function applyHeld(){                          // swap the displayed viewmodel (bottom of the dip)
+  holdShownKey=holdWantKey;
+  const show=holdWantKey!==null;
+  fpHold.visible=show;fpArm.visible=!show;     // vanilla: the held thing replaces the bare arm
+  if(!show)return;
+  const m=heldMesh(holdWantB);
+  if(fpHold.children[0]!==m){
+    while(fpHold.children.length)fpHold.remove(fpHold.children[0]);
+    fpHold.add(m);}
+  holdBase=ITEM_ART[holdWantB]?HOLD_ITEM:HOLD_BLOCK;}
+updateFPHold();applyHeld();
 function updateFPArm(dt){
   // swingT (shared with the 3rd-person swing) drives a vanilla mining/attack arc —
   // a port of ItemInHandRenderer.renderPlayerArm: the fist punches IN toward the
@@ -2168,6 +2221,10 @@ function updateFPArm(dt){
   // so it snaps out fast and settles slow, like vanilla.
   const sp=player.swingT>0?1-player.swingT/SWING_DUR:0; // 0→1 across one swing, 0 at rest
   const sq=Math.sqrt(sp);
+  // vanilla re-equip: ease the equip progress, swap the model at the bottom of the dip
+  equipH+=THREE.MathUtils.clamp((holdShownKey===holdWantKey?1:0)-equipH,-8*dt,8*dt);
+  if(holdShownKey!==holdWantKey&&equipH<.1)applyHeld();
+  const dipY=.6*(1-equipH);                            // vanilla: y -= 0.6 * (1 - equipProgress)
   const swX=-Math.sin(sq*Math.PI)*.14;                 // drift in toward the crosshair
   const swY=Math.sin(sq*Math.PI*2)*.09;                // quick rise, then the chop dips low (vanilla 2π term)
   const swZ=-Math.sin(sp*Math.PI)*.26;                 // punch INTO the screen — the arm stays rooted in the corner
@@ -2185,7 +2242,7 @@ function updateFPArm(dt){
   const idleY=Math.sin(player.armAge*.067)*.006*(1-spd);
   fpArm.position.set(
     FP_BASE.x+swX-swayX+bobX,
-    FP_BASE.y+swY-swayY-bobY+idleY,
+    FP_BASE.y+swY-swayY-bobY+idleY-dipY,
     FP_BASE.z+swZ);
   fpArm.rotation.set(
     FP_BASE.rx-Math.sin(sq*Math.PI)*.45,               // tip forward so the fist leads the punch (kept gentle —
@@ -2195,6 +2252,15 @@ function updateFPArm(dt){
                                                        // vs MC's pose stack, negative swept the arm off-screen right)
     FP_BASE.rz+Math.sin(sp*sp*Math.PI)*.35+swayX);     // wrist rolls into the strike (vanilla's 20° zRot, sp² easing;
                                                        // positive Z tips the fist in toward -X in three.js)
+  if(fpHold&&holdBase){                                // the held block/item rides the exact same motion
+    fpHold.position.set(
+      holdBase.x+swX-swayX+bobX,
+      holdBase.y+swY-swayY-bobY+idleY-dipY,
+      holdBase.z+swZ);
+    fpHold.rotation.set(
+      holdBase.rx-Math.sin(sq*Math.PI)*.45,
+      holdBase.ry+Math.sin(sq*Math.PI)*.9-swayX*1.5,
+      holdBase.rz+Math.sin(sp*sp*Math.PI)*.35+swayX);}
 }
 const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
 pvCam.position.set(0,1.0,3.6);pvCam.lookAt(0,.95,0);
@@ -2284,6 +2350,7 @@ function openQuit(){
   if(quitOpen)return;
   quitOpen=true;                                 // keys stay remembered; updatePlayer()
   leftDown=false;stopMining();                   // ignores them while the prompt is up
+  infoEl.style.display='none';                   // never show the "Click to play" tips under the prompt
   if(document.pointerLockElement)document.exitPointerLock();
   quitEl.classList.add('show');play('uiClick',.4);}
 function closeQuit(){                             // "No" — back to the game
