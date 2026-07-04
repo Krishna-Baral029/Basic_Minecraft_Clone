@@ -49,6 +49,7 @@
   .cnt{position:absolute;bottom:-1px;right:3px;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000}
   #info{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,.7);padding:20px 30px;border-radius:8px;text-align:center;line-height:1.7;display:none}
   #flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .3s}
+  #sleepFade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:4}
   #clock{position:fixed;top:8px;right:12px;color:#fff;text-shadow:0 0 3px #000}
   #debug{position:fixed;top:4px;left:4px;z-index:1;color:#fff;
     font-family:'VT323',monospace;font-size:clamp(16px,1.35vw,28px);line-height:1.15;
@@ -157,6 +158,7 @@
 <div id="clock"></div>
 <div id="debug"></div>
 <div id="flash"></div>
+<div id="sleepFade"></div>
 <!-- ---- survival inventory screen (E) ---- -->
 <div id="inv">
   <div id="invPanel">
@@ -333,7 +335,7 @@ const SFX={
               setTimeout(()=>noiseSnd({dur:.07,vol:.3,f0:500,f1:200}),70);}}; // thud
 
 // ================= TEXTURE ATLAS =================
-const TS=16,AT=4;
+const TS=16,AT=5; // 5x5 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed head/foot tops)
 const atlasC=document.createElement('canvas');atlasC.width=atlasC.height=TS*AT;
 const actx=atlasC.getContext('2d');
 const rnd=a=>a[(Math.random()*a.length)|0];
@@ -385,6 +387,17 @@ fillTile(13,(x,y)=>{                       // door upper half: planks + band + r
   if(d<.8)return rnd(['#85858d','#74747c','#92929a']);
   if(y===3||y===4)return rnd(['#6e6e72','#7a7a80','#62626a']);
   return doorWood(x);});
+// white wool: vanilla-style woven texture — bright white with a subtle diagonal weave
+fillTile(16,(x,y)=>((x+y)%4===0||(x*3+y)%7===0)?rnd(['#dcdcdc','#d4d4d4']):rnd(['#efefef','#e9e9e9','#f4f4f4']));
+// white bed tops: 17 = head half (pillow block at the far end), 18 = foot half (blanket)
+fillTile(17,(x,y)=>{
+  if(y<2||x===0||x===15)return'#8a6a40';                       // wood frame rim
+  if(y>=3&&y<=12&&x>=2&&x<=13)return rnd(['#fbfbfb','#f4f4f4']); // puffy white pillow
+  return rnd(['#e6e6e6','#dedede','#eaeaea']);});               // white blanket around it
+fillTile(18,(x,y)=>{
+  if(y>13||x===0||x===15)return'#8a6a40';                      // wood frame rim at the foot end
+  if(y===2||y===3)return rnd(['#d2d2d2','#c9c9c9']);           // blanket fold seam
+  return rnd(['#ececec','#e4e4e4','#f1f1f1']);});               // white blanket
 const atlasTex=new THREE.CanvasTexture(atlasC);
 atlasTex.magFilter=atlasTex.minFilter=THREE.NearestFilter;
 const solidMat=new THREE.MeshLambertMaterial({map:atlasTex,vertexColors:true,alphaTest:.3});
@@ -428,16 +441,17 @@ for(const id of['selWorld','createWorld','loading']){
 // ================= INFINITE CHUNK WORLD =================
 const CH=16,H=48,WATER=13,RENDER=5;
 const AIR=0,GRASS=1,DIRT=2,STONE=3,SAND=4,LOG=5,LEAF=6,PLANK=7,WATERB=8,COBBLE=9,GLASS=10,
-      CTABLE=11,DOORCL=12,DOORCU=13,DOOROL=14,DOOROU=15;
+      CTABLE=11,DOORCL=12,DOORCU=13,DOOROL=14,DOOROU=15,WOOL=16,BEDF=17,BEDH=18; // bed foot / bed head halves
 // items (crafted, never placeable in the world): ids start above all block ids
 const STICK_I=20,WSWORD_I=21,WAXE_I=22,WPICK_I=23,WSHOVEL_I=24,WHOE_I=25;
 const isTool=b=>b>=WSWORD_I&&b<=WHOE_I;
 const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
+const isBed=b=>b===BEDF||b===BEDH;
 let SEED=(Math.random()*1e9)|0;
 const isSolid=b=>b!==AIR&&b!==WATERB&&b!==DOOROL&&b!==DOOROU; // open doors are passable
 const solidAt=(x,y,z)=>y<0?true:isSolid(gB(x,y,z));
-const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b);
+const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b)||isBed(b); // beds are a low slab: neighbours must render behind them
 function hash2(x,z){
   let n=(x*374761393+z*668265263+SEED*97531)|0;
   n=Math.imul(n^(n>>>13),1274126177);
@@ -476,6 +490,11 @@ function groundH(x,z){
 // ---- decoration: trees + villages (deterministic per chunk) ----
 function tree(x,y,z){
   const th=4+(Math.random()*2|0);
+  // needs space: skip planting if the canopy volume is blocked (a village house, a cliff...)
+  // — stops trees growing into buildings and leaving leaves buried in walls/roofs
+  for(let dy=2;dy<=th+1;dy++)for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++){
+    const bb=gB(x+dx,y+dy,z+dz);
+    if(bb!==AIR&&bb!==LEAF)return;}
   for(let i=0;i<th;i++)sB(x,y+i,z,LOG);
   for(let dy=th-2;dy<=th;dy++)for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++){
     if(Math.abs(dx)===2&&Math.abs(dz)===2)continue;
@@ -491,10 +510,10 @@ function tree(x,y,z){
       const c=chunkMap.get(ckey(ccx,ccz));if(c&&c.meshed)c.dirty=true;}}
 const villagerSpawns=[];
 const HOUSE_STYLES=[
-  {rx:3,rz:2,wh:3,wall:PLANK,corner:LOG,floor:PLANK,roof:'flat'},          // classic plank hut
-  {rx:2,rz:3,wh:3,wall:COBBLE,corner:LOG,floor:COBBLE,roof:'gableZ'},      // stone cottage
-  {rx:2,rz:2,wh:4,wall:LOG,corner:COBBLE,floor:PLANK,roof:'gableX'},       // tall log cabin
-  {rx:3,rz:3,wh:3,wall:PLANK,corner:LOG,floor:PLANK,roof:'gableX',base:true}]; // big house, stone base
+  {rx:4,rz:3,wh:3,wall:PLANK,corner:LOG,floor:PLANK,roof:'flat'},          // wide plank house
+  {rx:3,rz:4,wh:3,wall:COBBLE,corner:LOG,floor:COBBLE,roof:'gableZ'},      // long stone cottage
+  {rx:3,rz:3,wh:4,wall:LOG,corner:COBBLE,floor:PLANK,roof:'gableX'},       // tall log cabin
+  {rx:4,rz:4,wh:3,wall:PLANK,corner:LOG,floor:PLANK,roof:'gableX',base:true}]; // big family house, stone base
 function placeHouse(cx,cz,style){
   const h=groundH(cx,cz);if(h<=WATER)return false;
   if(Math.max(Math.abs(cx-sx),Math.abs(cz-sz))<12)return false; // keep world spawn clear
@@ -518,6 +537,9 @@ function placeHouse(cx,cz,style){
   if(C.rx>=3){sB(x0,h+2,cz-1,GLASS);sB(x1,h+2,cz+1,GLASS);}
   if(C.rz>=3){sB(cx-1,h+2,z1,GLASS);sB(cx+1,h+2,z0,GLASS);}
   sB(cx,h+1,z0,DOORCL);sB(cx,h+2,z0,DOORCU);sB(cx,h,z0-1,COBBLE);
+  // every villager house has a white bed against the back wall (bigger houses get two)
+  sB(x0+1,h+1,z1-1,BEDH);sB(x0+1,h+1,z1-2,BEDF);
+  if(C.rx>=4){sB(x1-1,h+1,z1-1,BEDH);sB(x1-1,h+1,z1-2,BEDF);}
   // level a short apron in front of the door (the 1-block house border only reaches z0-1)
   // so higher natural terrain just outside can't form a dirt step that walls off the doorway
   for(let dz=2;dz<=4;dz++)for(let ax=cx-1;ax<=cx+1;ax++){
@@ -541,6 +563,16 @@ function placeHouse(cx,cz,style){
       for(let x=x0-1;x<=x1+1;x++){sB(x,y,a,PLANK);if(b!==a)sB(x,y,b,PLANK);}
       for(let z=a+1;z<b;z++){sB(x0,y,z,C.wall);sB(x1,y,z,C.wall);}
       a++;b--;y++;}}
+  // leaf decay around the site: clearing the footprint can cut a tree's trunk while its
+  // canopy hangs outside the border — vanilla-style, any leaf with no log within 2 blocks
+  // rots away, so no more floating leaf clusters between the houses
+  for(let x=x0-4;x<=x1+4;x++)for(let z=z0-4;z<=z1+4;z++)
+    for(let yy=h;yy<=h+11;yy++)
+      if(gB(x,yy,z)===LEAF){
+        let ok=false;
+        for(let dx=-2;dx<=2&&!ok;dx++)for(let dy=-2;dy<=2&&!ok;dy++)for(let dz=-2;dz<=2&&!ok;dz++)
+          if(gB(x+dx,yy+dy,z+dz)===LOG)ok=true;
+        if(!ok)sB(x,yy,z,AIR);}
   return true;}
 function decorate(cx,cz){
   const c=getChunk(cx,cz);if(c.dec)return;c.dec=true;
@@ -566,7 +598,7 @@ function buildVillage(vx,vz){
   const n=6+hash2(vx*17+1,vz*17+9)*5|0;            // 6..10 houses
   const style0=hash2(vx*29+2,vz*29+6)*HOUSE_STYLES.length|0;
   const a0=hash2(vx*43+4,vz*43+8)*Math.PI*2;
-  const r0=Math.max(12,Math.ceil(5/Math.sin(Math.PI/(n-1)))); // ring wide enough that houses can't touch
+  const r0=Math.max(14,Math.ceil(7/Math.sin(Math.PI/(n-1)))); // ring wide enough for the bigger houses
   const built=[];
   for(let i=0;i<n;i++){
     const st=(style0+i)%HOUSE_STYLES.length;       // cycle styles so neighbours differ
@@ -576,7 +608,7 @@ function buildVillage(vx,vz){
         const ang=a0+(i-1)*Math.PI*2/(n-1)+t*.5;
         const r=r0+t*3;
         hx=vx+Math.round(Math.cos(ang)*r);hz=vz+Math.round(Math.sin(ang)*r);}
-      if(built.some(b=>Math.abs(b.x-hx)<9&&Math.abs(b.z-hz)<9))continue;
+      if(built.some(b=>Math.abs(b.x-hx)<11&&Math.abs(b.z-hz)<11))continue;
       if(placeHouse(hx,hz,st)){
         built.push({x:hx,z:hz});
         villagerSpawns.push({x:hx,z:hz,hx:vx,hz:vz});break;}}}
@@ -596,6 +628,8 @@ const SHADE=[.8,.8,.55,1,.7,.7];
 function tileFor(b,f){switch(b){
   case GRASS:return f===3?0:(f===2?2:1);
   case DIRT:return 2;case STONE:return 3;case SAND:return 4;
+  case WOOL:return 16;
+  case BEDH:return f===3?17:8;case BEDF:return f===3?18:8; // bed: blanket top, plank frame sides
   case LOG:return(f===2||f===3)?6:5;
   case LEAF:return 7;case PLANK:return 8;
   case COBBLE:return 10;case GLASS:return 11;
@@ -623,6 +657,13 @@ function buildChunkMesh(c){
         for(const co of fc.c){
           P.push(wx+lo[0]+(hi[0]-lo[0])*co[0],y+co[1],wz+lo[2]+(hi[2]-lo[2])*co[2]);
           N.push(...fc.n);
+          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);}
+        I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
+      }else if(isBed(b)){                        // bed: 9/16-high slab, blanket top, plank frame sides
+        if(f!==3&&!(transp(nb)&&nb!==b)&&!isBed(nb))continue; // top face always shows (block above can't cover a slab)
+        const t=tileFor(b,f),col=t%AT,row=(t/AT)|0,n0=P.length/3,sh=SHADE[f];
+        for(const co of fc.c){
+          P.push(wx+co[0],y+co[1]*.5625,wz+co[2]);N.push(...fc.n);
           U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);}
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
       }else{
@@ -674,6 +715,22 @@ function breakDoor(x,y,z){
   const b=gB(x,y,z);
   const yl=(b===DOORCU||b===DOOROU)?y-1:y;
   setBlock(x,yl,z,AIR);setBlock(x,yl+1,z,AIR);}
+function bedPartner(x,y,z){                     // the other half sits in one of the 4 neighbours
+  const want=gB(x,y,z)===BEDF?BEDH:BEDF;
+  for(const[dx,dz]of[[1,0],[-1,0],[0,1],[0,-1]])
+    if(gB(x+dx,y,z+dz)===want)return[x+dx,y,z+dz];
+  return null;}
+function breakBed(x,y,z){
+  const p=bedPartner(x,y,z);
+  setBlock(x,y,z,AIR);if(p)setBlock(...p,AIR);}
+// ---- sleeping: right-click a bed at night skips to sunrise, like vanilla ----
+let sleepT=-1;                                  // >=0: fade-out progress of the sleep transition
+function trySleep(){
+  if(daylight>.3){flashMsg('You can only sleep at night');return;}
+  const near=mobs.some(m=>(m.type==='zombie'||m.type==='spider')&&!m.dead&&m.dying<0&&
+    m.pos.distanceTo(player.pos)<8&&(m.type!=='spider'||m.aggroT>0||daylight<.5));
+  if(near){flashMsg('You may not rest now; there are monsters nearby');return;}
+  sleepT=0;play('uiClick',.3);}
 function flowWater(x,y,z){
   const q=[[x,y,z]];let n=0;
   while(q.length&&n<80){
@@ -783,6 +840,7 @@ const SOUND_URLS={
   chickenEgg:['mob/chicken/plop.ogg'],        // the egg-laying "plop"
   splash:['liquid/splash.ogg','liquid/splash2.ogg'],
   swim:seq('liquid/','swim',18),
+  stepCloth:seq('step/','cloth',4),   // wool / bed
   stepGrass:seq('step/','grass',6),
   stepGravel:seq('step/','gravel',4),
   stepSand:seq('step/','sand',5),
@@ -1023,6 +1081,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
   }else if(e.button===2){
     const r=raycast();if(!r)return;
     if(r.hit&&isDoor(gB(...r.hit))){player.swingT=SWING_DUR;toggleDoor(...r.hit);return;} // vanilla swings on use too
+    if(r.hit&&isBed(gB(...r.hit))){trySleep();return;}         // use a bed: sleep through the night
     if(r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
     if(!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
@@ -1031,6 +1090,17 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(x+1>p.x-.3&&x<p.x+.3&&z+1>p.z-.3&&z<p.z+.3&&y+1>p.y&&y<p.y+1.8)return;
     const it=hotbar[sel];
     if(!it||it.b>=STICK_I||(!isCreative()&&it.count<=0))return; // tools/sticks aren't placeable
+    if(it.b===BEDF){                                  // beds occupy 2 blocks: foot here, head one
+      const fwx=-Math.sin(player.yaw),fwz=-Math.cos(player.yaw);   // block further along the facing
+      const ddx=Math.abs(fwx)>Math.abs(fwz)?Math.sign(fwx):0,ddz=Math.abs(fwx)>Math.abs(fwz)?0:Math.sign(fwz);
+      const hb=gB(x+ddx,y,z+ddz);
+      if(hb!==AIR&&hb!==WATERB){flashMsg('No room for the bed');return;}
+      if(!isCreative()&&--it.count<=0)hotbar[sel]=null;
+      drawHotbar();
+      setBlock(x,y,z,BEDF);setBlock(x+ddx,y,z+ddz,BEDH);flush();
+      player.swingT=SWING_DUR;
+      if(!play('stepCloth',.7,.8))SFX.place();
+      return;}
     if(!isCreative()&&--it.count<=0)hotbar[sel]=null; // last one placed: slot frees up
     drawHotbar();
     setBlock(x,y,z,it.b);flush();
@@ -1512,7 +1582,9 @@ class Mob{
     this.hurtT=.5;                           // Minecraft hurt flash: solid red for half a second
     if(dying){this.dying=0;this.hurtT=99;    // stay red while keeling over
       if(this.type==='pig'||this.type==='sheep'||this.type==='chicken') // food animals restore hunger
-        player.food=Math.min(20,player.food+(this.type==='pig'?8:this.type==='sheep'?6:4));}
+        player.food=Math.min(20,player.food+(this.type==='pig'?8:this.type==='sheep'?6:4));
+      if(this.type==='sheep'){addDrop(WOOL);drawHotbar(); // vanilla: an unsheared sheep always drops exactly 1 wool
+        S('pop',.5,()=>{});}}
     else if(this.type==='spider')this.aggroT=12; // provoked: hostile even in daylight, like vanilla
     else if(this.type!=='zombie'){           // animals+villagers bolt; zombies+spiders keep coming
       this.dir=away;this.moving=true;
@@ -1774,7 +1846,7 @@ function attack(){
 // seconds to break by hand (~vanilla; stone-type shortened a bit since there are no tools)
 function hardFor(b){
   let t=(b===STONE||b===COBBLE)?3.5:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
-    :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:.75;
+    :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:(b===WOOL||isBed(b))?.8:.75;
   const it=hotbar[sel],tb=it?it.b:0;           // right tool in hand = ~4x faster, like vanilla
   if(tb===WAXE_I&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=4;
   else if(tb===WPICK_I&&(b===STONE||b===COBBLE))t/=4;
@@ -1782,9 +1854,10 @@ function hardFor(b){
   else if(tb===WHOE_I&&b===LEAF)t=.1;
   return t;}
 // what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters
-function dropFor(b){return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:b;}
+function dropFor(b){return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
+  if(b===WOOL||isBed(b))return{hit:'stepCloth',dig:'stepCloth',col:0xededed}; // cloth family, like vanilla wool
   if(b===SAND)return{hit:'stepSand',dig:'digSand',col:0xdcd49a};
   if(b===STONE||b===COBBLE)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
   if(b===LOG||b===PLANK||b===CTABLE||isDoor(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40};
@@ -1836,7 +1909,7 @@ function updateMining(dt){
   crackMesh.visible=true;crackMesh.position.set(x+.5,y+.5,z+.5);
   crackMat.map=crackTex[Math.min(9,(mining.t/mining.need*10)|0)];
   if(mining.t>=mining.need){
-    if(isDoor(b))breakDoor(x,y,z);else setBlock(x,y,z,AIR);
+    if(isDoor(b))breakDoor(x,y,z);else if(isBed(b))breakBed(x,y,z);else setBlock(x,y,z,AIR);
     flowWater(x,y,z);flush();
     if(!play(m.dig,.9,.8))SFX.dig(); // break sound: vanilla plays it at fixed 0.8 pitch, full volume
     for(let i=0;i<10;i++)spawnFlame(           // block debris burst
@@ -1927,7 +2000,7 @@ function updateMobs(dt){
 // item stacks are {b,count} (max 64); a slot holds a stack or null, like vanilla
 const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[LOG]:'Oak Log',
   [LEAF]:'Oak Leaves',[PLANK]:'Oak Planks',[COBBLE]:'Cobblestone',[GLASS]:'Glass',
-  [CTABLE]:'Crafting Table',
+  [CTABLE]:'Crafting Table',[WOOL]:'White Wool',[BEDF]:'White Bed',[BEDH]:'White Bed',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -2055,9 +2128,10 @@ const addStack=it=>mergeInto([hotbar,invSlots],it);
 // bounding box of the grid equals the pattern (or its horizontal mirror, like
 // vanilla). 3-wide/3-tall patterns can only ever fit the crafting table's 3x3
 // grid, so tools genuinely require a crafting table - just like the real game.
-const RKEY={P:PLANK,S:STICK_I,L:LOG};
+const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL};
 const RECIPES=[
   [['L'],PLANK,4],                  // 1 log -> 4 planks
+  [['WWW','PPP'],BEDF,1],           // vanilla bed: 3 wool over 3 planks (needs the crafting table)
   [['P','P'],STICK_I,4],            // 2 planks stacked -> 4 sticks
   [['PP','PP'],CTABLE,1],           // 2x2 planks -> crafting table
   [['P','P','S'],WSWORD_I,1],       // vanilla wooden_sword
@@ -2626,6 +2700,11 @@ function tick(){
     updateMining(dt);
     updateParticles(dt);
     updateHighlight();
+    if(sleepT>=0){                             // sleeping: fade to black, wake at sunrise, fade back
+      sleepT+=dt;
+      if(sleepT>=1&&daylight<.3){dayFrac=.02;flashMsg('Rise and shine!');}
+      document.getElementById('sleepFade').style.opacity=sleepT<1?sleepT:Math.max(0,2-sleepT);
+      if(sleepT>=2)sleepT=-1;}
     if((saveAcc+=dt)>=10){saveAcc=0;snapshotWorld();}} // autosave every 10s, like vanilla's autosave
   if(invOpen&&invMode==='inv')updateInvPreview();
   updateDebug(dt);
