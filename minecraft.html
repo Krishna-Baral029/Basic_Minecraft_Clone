@@ -776,6 +776,9 @@ const SOUND_URLS={
   zombieStep:seq('mob/zombie/','step',5),
   chicken:seq('mob/chicken/','say',3),        // clucks: ambient + hurt/death voice
   chickenHurt:seq('mob/chicken/','hurt',2),   // pack has no chicken death; hurt doubles for it
+  spider:seq('mob/spider/','say',4),          // hisses: ambient + hurt voice
+  spiderDeath:['mob/spider/death.ogg'],
+  spiderStep:seq('mob/spider/','step',4),
   chickenStep:seq('mob/chicken/','step',2),
   chickenEgg:['mob/chicken/plop.ogg'],        // the egg-laying "plop"
   splash:['liquid/splash.ogg','liquid/splash2.ogg'],
@@ -811,7 +814,7 @@ function mobSound(type,pos){
   const d=pos.distanceTo(player.pos);if(d>22)return;
   const vol=.25/(1+d*.18);
   // vanilla gives every ambient call a random pitch (0.9x-1.1x, ±20% for babies/variety)
-  if(!play(type,vol*3,.9+Math.random()*.2))SFX[type](vol);}
+  if(!play(type,vol*3,.9+Math.random()*.2)){const fb=SFX[type];fb&&fb(vol);}}
 
 // ---- lobby music ----
 // +10% boost needs Web Audio, but on file:// a MediaElementSource is CORS-muted
@@ -1417,6 +1420,35 @@ const builders={
     m.head.add(part(.54,.14,.54,0x4a3018,0,.47,0));         // hair cap
     m.head.add(part(.16,.05,.02,0x8a6a4a,0,.1,.26));        // mouth
     return m;},
+  spider:()=>{
+    // vanilla ModelSpider, scaled /16: neck 6x6x6 at the pivot, head 8x8x8 in front,
+    // abdomen 10x8x12 behind, and 8 legs of 16x2x2 anchored at the neck sides. Pivot
+    // height 9px (rotation point y=15 of 24). Our +z is forward (vanilla's is -z).
+    const g=new THREE.Group(),y=9/16;
+    const BODY=0x2e261d,ABD=0x241d16,LEG=0x1a1410;      // dark browns off the vanilla texture
+    g.add(part(6/16,6/16,6/16,BODY,0,y,0,false,hideTex));            // neck
+    g.add(part(10/16,8/16,12/16,ABD,0,y,-9/16,false,hideTex));       // big abdomen behind
+    const head=new THREE.Group();head.position.set(0,y,3/16);        // head pivot, tracks the player
+    head.add(part(8/16,8/16,8/16,BODY,0,0,4/16,false,hideTex));
+    const eye=(w,x2,ey,c)=>{const e=part(w,w,.02,c,x2,ey,.505,false,flatTex);
+      e.userData.glow=true;return e;};                               // glow: skips night dimming
+    head.add(eye(.1,-.115,.05,0xc93030));head.add(eye(.1,.115,.05,0xc93030));   // big glowing pair
+    head.add(eye(.055,-.24,.09,0x8a1f1f));head.add(eye(.055,.24,.09,0x8a1f1f)); // outer small pair
+    head.add(eye(.055,-.07,-.09,0x8a1f1f));head.add(eye(.055,.07,-.09,0x8a1f1f)); // lower pair
+    head.add(part(.09,.14,.09,LEG,-.15,-.3,.42));                    // fangs under the face
+    head.add(part(.09,.14,.09,LEG,.15,-.3,.42));
+    g.add(head);
+    // legs: vanilla z offsets 2,1,0,-1 px (flipped to our forward), yaw fan ±(π/8·2 | π/8),
+    // roll splay ±π/4 for the end pairs and ±π/4·0.74 for the middle pairs
+    const legs=[],zoff=[-.125,-.0625,0,.0625],mag=[2,1,1,2],dir=[1,1,-1,-1],roll=[1,.74,.74,1],
+          ph=[0,Math.PI,Math.PI/2,Math.PI*1.5];
+    for(let i=0;i<4;i++)for(const s of[-1,1]){
+      const l=part(1,.125,.125,LEG,s*4/16,y,zoff[i],false,hideTex);
+      l.geometry.translate(s*.5,0,0);                                // pivot at the hip, box points outward
+      l.userData.leg={s,by:s*dir[i]*mag[i]*Math.PI/8,bz:-s*roll[i]*Math.PI/4,ph:ph[i]};
+      l.rotation.y=l.userData.leg.by;l.rotation.z=l.userData.leg.bz;
+      g.add(l);legs.push(l);}
+    return{g,limbs:[],head,spiderLegs:legs};},
   zombie:()=>{const m=humanoid(0x4e9141,0x1f8a8a,0x4a4a8c,{zombie:true});
     m.head.add(part(.09,.09,.02,0x0a0a0a,-.12,.3,.26));     // hollow black eyes
     m.head.add(part(.09,.09,.02,0x0a0a0a,.12,.3,.26));
@@ -1431,8 +1463,8 @@ class Mob{
     this.type=type;this.pos=new THREE.Vector3(x,y,z);
     this.vy=0;this.dir=Math.random()*Math.PI*2;this.moving=true;
     this.timer=0;this.phase=0;this.cool=0;this.grounded=false;this.home=home;
-    this.hp=type==='chicken'?12:20;           // chicken: dies in 3 hand punches (4 dmg each)
-    this.clear=type==='chicken'?1:2;          // body height in blocks for collision: a chicken is short (~0.7) so it fits 1-tall gaps (e.g. under tree leaves); other mobs need 2
+    this.hp=type==='chicken'?12:type==='spider'?16:20; // chicken 3 punches; spider vanilla 16 HP
+    this.clear=(type==='chicken'||type==='spider')?1:2; // short mobs (chicken ~0.7, spider ~0.9) fit 1-tall gaps; others need 2
     this.dead=false;
     this.bodyYaw=this.dir;this.headYaw=0;this.headPitch=0;
     this.panicT=0;this.repickT=0;this.hurtT=0;this.swing=0;this.dying=-1;
@@ -1441,7 +1473,8 @@ class Mob{
     this.ambT=.5+Math.random()*3;            // first ambient voice within ~3s, staggered per mob
     this.flap=0;this.flapSpd=0;               // wing-flap phase + eased flap magnitude
     const m=builders[type]();this.group=m.g;this.limbs=m.limbs;this.head=m.head;
-    this.wings=m.wings;this.arms=m.arms;
+    this.wings=m.wings;this.arms=m.arms;this.spiderLegs=m.spiderLegs;
+    this.aggroT=0;this.leapT=0;this.leaping=false; // spider: provoked-hostility timer + pounce state
     this.attackT=0;this.armAge=Math.random()*1000;this.armRaise=0; // zombie arm swing progress, idle-sway phase, eased aggression
     this.flank=0;this.flankT=0;               // per-zombie approach offset so they don't all path the same line
     this.group.traverse(o=>{if(o.material)o.userData.base=o.material.color.clone();});
@@ -1454,6 +1487,10 @@ class Mob{
   colorize(){ // unlit entity shading: base colour * day/night level, plus hurt/burn flashes
     const L=mobLight,red=this.hurtT>0,fl=this.burning?this.flick||0:0;
     this.group.traverse(o=>{if(o.material&&o.userData.base){
+      if(o.userData.glow){                         // spider eyes: emissive, never dimmed by night
+        o.material.color.copy(o.userData.base);
+        if(red)o.material.color.lerp(HURT_RED,.65);
+        return;}
       o.material.color.copy(o.userData.base).multiplyScalar(L);
       if(red)o.material.color.lerp(HURT_RED,.65);  // solid red flash, reads even on white wool
       if(fl)o.material.color.lerp(FIRE_C,fl*.6);}});}
@@ -1466,6 +1503,7 @@ class Mob{
     else if(this.type==='pig')play(dying?'pigDeath':'pig',.6,pr);
     else if(this.type==='sheep')play('sheep',.6,pr); // pack has no sheep death; single baa
     else if(this.type==='chicken')play(dying?'chicken':'chickenHurt',.6,pr); // cluck on death, squawk on hurt
+    else if(this.type==='spider')play(dying?'spiderDeath':'spider',.6,pr);   // hiss on hurt, like vanilla
     // Minecraft knockback: velocity burst away from the attacker + a small hop,
     // sliding back ~1 block while still facing the player (no teleport)
     const away=Math.atan2(this.pos.x-player.pos.x,this.pos.z-player.pos.z);
@@ -1475,7 +1513,8 @@ class Mob{
     if(dying){this.dying=0;this.hurtT=99;    // stay red while keeling over
       if(this.type==='pig'||this.type==='sheep'||this.type==='chicken') // food animals restore hunger
         player.food=Math.min(20,player.food+(this.type==='pig'?8:this.type==='sheep'?6:4));}
-    else if(this.type!=='zombie'){           // animals+villagers bolt; zombies keep coming at you
+    else if(this.type==='spider')this.aggroT=12; // provoked: hostile even in daylight, like vanilla
+    else if(this.type!=='zombie'){           // animals+villagers bolt; zombies+spiders keep coming
       this.dir=away;this.moving=true;
       this.panicT=4+Math.random()*2;}}
   update(dt){
@@ -1590,6 +1629,26 @@ class Mob{
         this.moving=pd>1.1;sp=2.5;             // stop at arm's reach instead of walking into you
         if(pd<1.5&&this.cool<=0){this.cool=1.1;this.attackT=1; // start a forward arm swing
           damagePlayer(world.diff==='Easy'?1:world.diff==='Hard'?3:2);}}}
+    if(this.type==='spider'){
+      // vanilla spider brain: hostile only in dim light (light<=11 ~ our daylight<.5) or for
+      // 12s after being hit; sight range 16; no burning at dawn — it just goes neutral
+      if(this.aggroT>0)this.aggroT-=dt;
+      if(this.leapT>0)this.leapT-=dt;
+      if(this.grounded&&this.leapT<1.2)this.leaping=false;  // pounce ends on landing
+      const hostile=(daylight<.5||this.aggroT>0)&&pd<16&&this.panicT<=0;
+      if(hostile){
+        const base=Math.atan2(player.pos.x-this.pos.x,player.pos.z-this.pos.z);
+        if((this.flankT-=dt)<=0){this.flankT=1+Math.random()*1.4;
+          this.flank=(Math.random()*2-1)*.7;}  // scuttle in off-line, then converge
+        this.dir=base+this.flank*Math.min(1,(pd-1.5)/6);
+        this.moving=pd>1.1;
+        sp=this.leaping?4.6:2.8;               // vanilla speed .3 (~30% over zombie); pounce is a burst
+        if(pd>2&&pd<4&&this.grounded&&this.leapT<=0&&Math.random()<dt*4){
+          // vanilla LeapAtTargetGoal(0.4): from 2-4 blocks out, spring at the target
+          this.leapT=1.6;this.leaping=true;this.vy=6.6;this.dir=base;
+          mobSound('spider',this.pos);}
+        if(pd<1.6&&this.cool<=0){this.cool=1.2; // bite: vanilla 2 dmg normal, 1 easy, 3 hard
+          damagePlayer(world.diff==='Easy'?1:world.diff==='Hard'?3:2);}}}
     if(this.type==='villager'&&this.home&&this.panicT<=0){
       const dx=this.pos.x-this.home.x,dz=this.pos.z-this.home.z;
       if(dx*dx+dz*dz>100){this.dir=Math.atan2(-dx,-dz);this.moving=true;}}
@@ -1603,6 +1662,8 @@ class Mob{
         if(this.grounded)this.vy=(this.type==='chicken'&&this.panicT>0)?9:7.4;
         else if(this.type==='chicken'&&this.panicT>0&&this.vy<3)this.vy=6; // mid-air re-flap if still blocked
         this.phase+=dt*(5+sp*4);}              // keep legs/wings animating against the wall
+      else if(this.type==='spider'){this.vy=2.6;this.phase+=dt*(5+sp*4);} // tall wall ahead: CLIMB it —
+                                               // vanilla spiders treat block sides as ladders
       else this.dir+=Math.PI*(.5+Math.random());
       this.phase+=dt*(5+sp*4);               // step cadence follows actual speed
       if(this.type==='zombie'&&this.grounded){       // shamble footsteps
@@ -1614,7 +1675,12 @@ class Mob{
         this.stepT=(this.stepT||0)-dt;
         if(this.stepT<=0){this.stepT=.3;
           const d=this.pos.distanceTo(player.pos);
-          if(d<14)play('chickenStep',.15/(1+d*.3));}}}
+          if(d<14)play('chickenStep',.15/(1+d*.3));}}
+      if(this.type==='spider'&&this.grounded){       // skittering taps
+        this.stepT=(this.stepT||0)-dt;
+        if(this.stepT<=0){this.stepT=.28;
+          const d=this.pos.distanceTo(player.pos);
+          if(d<14)play('spiderStep',.4/(1+d*.3));}}}
     const feet=gB(Math.floor(this.pos.x),Math.floor(this.pos.y+.2),Math.floor(this.pos.z));
     if(feet===WATERB)this.vy=Math.min(this.vy+30*dt,1.5);
     else this.vy-=22*dt;
@@ -1629,6 +1695,14 @@ class Mob{
     this.swing+=((this.moving?Math.min(1,sp/2.2):0)-this.swing)*Math.min(1,dt*8);
     const sw=Math.sin(this.phase)*.9*this.swing;
     for(const[l,s2]of this.limbs)l.rotation.x=sw*s2; // legs (zombie arms handled below)
+    if(this.spiderLegs)for(const l of this.spiderLegs){
+      // vanilla ModelSpider walk cycle: yaw wiggle -cos(2t+phase)*.4, roll lift |sin(t+phase)|*.4,
+      // opposite phases per pair — the classic 8-leg scuttle
+      const u=l.userData.leg;
+      const wig=-Math.cos(this.phase*2+u.ph)*.4*this.swing;
+      const lift=Math.abs(Math.sin(this.phase+u.ph))*.4*this.swing;
+      l.rotation.y=u.by+u.s*wig;
+      l.rotation.z=u.bz+u.s*lift;}
     if(this.type==='zombie'&&this.arms){
       // port of Minecraft AnimationUtils.animateZombieArms: arms held out front,
       // raised higher when it has a target, a constant gentle idle sway, and a
@@ -1776,7 +1850,8 @@ function crowded(x,z,zombie){
   let n=0;
   for(const m of mobs){
     const animal=m.type==='pig'||m.type==='sheep'||m.type==='chicken';
-    if((zombie?m.type==='zombie':animal)&&
+    const hostile=m.type==='zombie'||m.type==='spider';
+    if((zombie?hostile:animal)&&
        Math.abs(m.pos.x-x)<16&&Math.abs(m.pos.z-z)<16&&++n>=4)return true;}
   return false;}
 function spawnAnimal(){
@@ -1792,6 +1867,11 @@ function spawnZombie(){
   const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
   const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
   mobs.push(new Mob('zombie',x+.5,h+1,z+.5));}
+function spawnSpider(){
+  const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
+  const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
+  const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
+  mobs.push(new Mob('spider',x+.5,h+1,z+.5));}
   const particles=[];
 const flameG=new THREE.BoxGeometry(.12,.12,.12);
 function spawnFlame(x,y,z,mob,col,debris){
@@ -1834,6 +1914,8 @@ function updateMobs(dt){
 
   if(daylight<.3&&world.diff!=='Peaceful'&&
      mobs.filter(m=>m.type==='zombie').length<8&&Math.random()<dt*.4)spawnZombie();
+  if(daylight<.3&&world.diff!=='Peaceful'&&
+     mobs.filter(m=>m.type==='spider').length<4&&Math.random()<dt*.25)spawnSpider();
   for(let i=mobs.length-1;i>=0;i--){const m=mobs[i];
     if(m.type==='zombie'&&daylight>.6&&!m.burning){m.burning=true;m.burnT=5;
       play('fireIgnite',.4/(1+m.pos.distanceTo(player.pos)*.15));}
