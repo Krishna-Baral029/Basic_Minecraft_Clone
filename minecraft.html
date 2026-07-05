@@ -47,6 +47,7 @@
     outline:2px solid #161616;box-shadow:inset 0 0 0 2px #161616;z-index:2;pointer-events:none}
   .sw{width:40px;height:40px;image-rendering:pixelated}
   .cnt{position:absolute;bottom:-1px;right:3px;color:#fff;font-size:17px;font-weight:bold;text-shadow:2px 2px 0 #000}
+  .cnt.tcnt{transform:translateY(-8px)}  /* crafting-result torch only: icon rides 3px up to center, the count follows */
   #info{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,.7);padding:20px 30px;border-radius:8px;text-align:center;line-height:1.7;display:none}
   #flash{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none;transition:opacity .3s}
   #sleepFade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:4}
@@ -66,7 +67,7 @@
     color:#ffff55;font-size:24px;font-weight:bold;text-shadow:2px 2px 0 #3f3f00;
     transform-origin:left center;transform:rotate(-15deg);animation:pulse .9s infinite;pointer-events:none}
   @keyframes pulse{50%{transform:rotate(-15deg) scale(1.1)}}
-  .mbtn{width:340px;padding:13px;margin:5px;font-family:monospace;font-size:19px;color:#fff;background:#6f6f6f;border:2px solid #000;box-shadow:inset 2px 2px 0 #ababab,inset -2px -2px 0 #474747;cursor:pointer;text-shadow:2px 2px 0 #3f3f3f}
+  .mbtn{width:340px;padding:11px;margin:5px;font-family:'VT323',monospace;font-size:25px;color:#fff;background:#6f6f6f;border:2px solid #000;box-shadow:inset 2px 2px 0 #ababab,inset -2px -2px 0 #474747;cursor:pointer;text-shadow:2px 2px 0 #3f3f3f}
   .mbtn:hover{background:#83a5d4}
   #mMsg{font-family:'VT323',monospace;color:#ff8;height:22px;margin-top:16px;font-size:20px}
   #mFoot{position:absolute;bottom:8px;left:10px;color:#ddd;font-size:12px}
@@ -335,7 +336,7 @@ const SFX={
               setTimeout(()=>noiseSnd({dur:.07,vol:.3,f0:500,f1:200}),70);}}; // thud
 
 // ================= TEXTURE ATLAS =================
-const TS=16,AT=5; // 5x5 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed head/foot tops)
+const TS=16,AT=5; // 5x5 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed head/foot tops, 19 coal ore, 20 torch)
 const atlasC=document.createElement('canvas');atlasC.width=atlasC.height=TS*AT;
 const actx=atlasC.getContext('2d');
 const rnd=a=>a[(Math.random()*a.length)|0];
@@ -373,6 +374,9 @@ fillTile(15,(x,y)=>{
   if(y<2)return rnd(['#b58d57','#a8824e']);
   if(y>=5&&y<=10&&((x>=3&&x<=6)||(x>=9&&x<=12)))return rnd(['#3a2a18','#2e2014','#241a0e']);
   return(y%4===3)?'#7d5f36':rnd(['#9a7748','#8a6a40','#93714a']);});
+// vanilla coal_ore.png (exact pixels, 1.21.4 assets — stone base + coal blobs)
+fillTilePx(19,['#8f8f8f','#7f7f7f','#747474','#686868','#5c5c5c','#252525','#393c36','#363636','#2e2e2e','#494b3f'],
+  '0000122123221111112121444113341212332456742187111422186798511222257222485542221110012100022443202012422212686411242456841146910002156978121222121024874220011441310244121222456311442411214422221459755004965233024654222475422112221178114111001122210210011211');
 // vanilla cobblestone.png (exact pixels)
 fillTilePx(10,['#888788','#616161','#6e6d6d','#a6a6a6','#b5b5b5','#525252'],
   '2133511343010430134005443005102013032130032151021102110202103015521043101143330142340021500430203010300211230214002200210431201021432210400011521430202200121031020201151221533402211204311504402043214303210020143001302002110233020212002130111011202121104302');
@@ -398,9 +402,28 @@ fillTile(18,(x,y)=>{
   if(y>13||x===0||x===15)return'#8a6a40';                      // wood frame rim at the foot end
   if(y===2||y===3)return rnd(['#d2d2d2','#c9c9c9']);           // blanket fold seam
   return rnd(['#ececec','#e4e4e4','#f1f1f1']);});               // white blanket
+// vanilla torch.png (exact pixels, 1.21.4 assets): a 2px-wide strip at x 7-8 —
+// glowing coal head on rows 6-7, wooden stick on rows 8-15, all else transparent
+const TORCH_PX={6:['#ffd800','#ff8f00'],7:['#ffff97','#ffffff'],8:['#9f7f50','#6d5736'],
+  9:['#957546','#55452e'],10:['#9f7f50','#423522'],11:['#9f7f50','#55452e'],12:['#957546','#55452e'],
+  13:['#6d5736','#3d301d'],14:['#9f7f50','#3b2e1b'],15:['#6d5736','#372a17']};
+fillTile(20,(x,y)=>(x===7||x===8)&&TORCH_PX[y]?TORCH_PX[y][x-7]:null);
 const atlasTex=new THREE.CanvasTexture(atlasC);
 atlasTex.magFilter=atlasTex.minFilter=THREE.NearestFilter;
 const solidMat=new THREE.MeshLambertMaterial({map:atlasTex,vertexColors:true,alphaTest:.3});
+// ---- torch block light, vanilla-style: chunk meshes carry a per-vertex 'tl'
+// attribute (block light 0..14/15, BFS-propagated from torches at mesh time).
+// The shader adds it as warm EMISSIVE light, so torch-lit faces ignore the
+// night dimming — max(scene light, block light), just like vanilla combines
+// skylight with blocklight. uDay fades the glow out in daylight.
+const torchGlow={value:1};
+solidMat.onBeforeCompile=sh=>{
+  sh.uniforms.uDay=torchGlow;
+  sh.vertexShader='attribute float tl;varying float vTl;\n'+
+    sh.vertexShader.replace('#include <color_vertex>','#include <color_vertex>\n\tvTl=tl;');
+  sh.fragmentShader='varying float vTl;uniform float uDay;\n'+
+    sh.fragmentShader.replace('#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance+=diffuseColor.rgb*vec3(1.,.88,.66)*max(0.,vTl-uDay*.85);');};
 const wC=document.createElement('canvas');wC.width=wC.height=16;
 const wctx=wC.getContext('2d');
 for(let y=0;y<16;y++)for(let x=0;x<16;x++){
@@ -441,17 +464,24 @@ for(const id of['selWorld','createWorld','loading']){
 // ================= INFINITE CHUNK WORLD =================
 const CH=16,H=48,WATER=13,RENDER=5;
 const AIR=0,GRASS=1,DIRT=2,STONE=3,SAND=4,LOG=5,LEAF=6,PLANK=7,WATERB=8,COBBLE=9,GLASS=10,
-      CTABLE=11,DOORCL=12,DOORCU=13,DOOROL=14,DOOROU=15,WOOL=16,BEDF=17,BEDH=18; // bed foot / bed head halves
+      CTABLE=11,DOORCL=12,DOORCU=13,DOOROL=14,DOOROU=15,WOOL=16,BEDF=17,BEDH=18, // bed foot / bed head halves
+      COALORE=19;
 // items (crafted, never placeable in the world): ids start above all block ids
-const STICK_I=20,WSWORD_I=21,WAXE_I=22,WPICK_I=23,WSHOVEL_I=24,WHOE_I=25;
+const STICK_I=20,WSWORD_I=21,WAXE_I=22,WPICK_I=23,WSHOVEL_I=24,WHOE_I=25,COAL_I=26;
+// torches sit above the item ids (20-26 were already saved into worlds/inventories,
+// so they can't be renumbered): 27 = floor torch, 28-31 = wall torches, where the
+// id encodes WHICH neighbour the torch hangs on (its support block)
+const TORCH=27,TORCHE=28,TORCHW=29,TORCHS=30,TORCHN=31;
+const TSUP={28:[1,0],29:[-1,0],30:[0,1],31:[0,-1]}; // wall id -> [dx,dz] from torch cell to its support
+const isTorch=b=>b===TORCH||(b>=TORCHE&&b<=TORCHN);
 const isTool=b=>b>=WSWORD_I&&b<=WHOE_I;
 const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
 const isBed=b=>b===BEDF||b===BEDH;
 let SEED=(Math.random()*1e9)|0;
-const isSolid=b=>b!==AIR&&b!==WATERB&&b!==DOOROL&&b!==DOOROU; // open doors are passable
+const isSolid=b=>b!==AIR&&b!==WATERB&&b!==DOOROL&&b!==DOOROU&&!isTorch(b); // open doors + torches are passable (torches have no collision box, like vanilla)
 const solidAt=(x,y,z)=>y<0?true:isSolid(gB(x,y,z));
-const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b)||isBed(b); // beds are a low slab: neighbours must render behind them
+const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b)||isBed(b)||isTorch(b); // beds are a low slab: neighbours must render behind them
 function hash2(x,z){
   let n=(x*374761393+z*668265263+SEED*97531)|0;
   n=Math.imul(n^(n>>>13),1274126177);
@@ -474,6 +504,26 @@ function makeChunk(cx,cz){
     for(let y=0;y<=h;y++)
       d[(y*CH+lz)*CH+lx]=y<h-3?STONE:(y<h?DIRT:(h<=WATER+1?SAND:GRASS));
     for(let y=h+1;y<=WATER;y++)d[(y*CH+lz)*CH+lx]=WATERB;}
+  // coal ore veins (deterministic per chunk): a triangle distribution like
+  // vanilla 1.18 coal — but spanning the ACTUAL stone column at each attempt.
+  // Naively scaling vanilla's Y=96-of-320 peak put it at y≈20, ABOVE the stone
+  // (which usually tops out near y≈13): most attempts failed in dirt/air and
+  // the survivors hugged the surface, so strip mines at y≈7 found nothing.
+  // Anchoring the triangle to the stone top lands the peak mid-depth (~y6-7,
+  // strip-mine level) and every attempt succeeds; tall hillside columns still
+  // push veins high enough to poke out of cliff faces like real MC
+  for(let v=0;v<12;v++){
+    const rv=n=>hash2(cx*127+v*31+n*7,cz*113+v*17-n*13);
+    let vx=(rv(1)*CH)|0,vz=(rv(2)*CH)|0,st=0;
+    for(let y=H-1;y>=1;y--)if(d[(y*CH+vz)*CH+vx]===STONE){st=y;break;} // top of stone in this column
+    if(st<2)continue;                                              // beach/ocean sliver: no room for a vein
+    let vy=1+((rv(3)+rv(4))/2*(st-1)|0);                           // triangle 1..st, peak ~st/2
+    const vn=4+(rv(5)*6|0);                                        // vein size 4-9, like small MC veins
+    for(let i=0;i<vn;i++){
+      if(vx>=0&&vx<CH&&vz>=0&&vz<CH&&vy>=1&&vy<H&&d[(vy*CH+vz)*CH+vx]===STONE)
+        d[(vy*CH+vz)*CH+vx]=COALORE;
+      const s=(rv(6+i)*6)|0;                                       // drunken-walk blob
+      vx+=s===0?1:s===1?-1:0;vy+=s===2?1:s===3?-1:0;vz+=s===4?1:s===5?-1:0;}}
   chunkMap.set(ckey(cx,cz),c);return c;}
 const getChunk=(cx,cz)=>chunkMap.get(ckey(cx,cz))||makeChunk(cx,cz);
 function gB(x,y,z){if(y<0||y>=H)return AIR;
@@ -484,7 +534,7 @@ function sB(x,y,z,v){if(y<0||y>=H)return;
   getChunk(cx,cz).data[(y*CH+(z-cz*CH))*CH+(x-cx*CH)]=v;}
 function groundH(x,z){
   for(let y=H-1;y>=0;y--){const b=gB(x,y,z);
-    if(b!==AIR&&b!==WATERB&&b!==LEAF&&b!==LOG)return y;}
+    if(b!==AIR&&b!==WATERB&&b!==LEAF&&b!==LOG&&!isTorch(b))return y;}
   return 0;}
 
 // ---- decoration: trees + villages (deterministic per chunk) ----
@@ -564,14 +614,20 @@ function placeHouse(cx,cz,style){
       for(let z=a+1;z<b;z++){sB(x0,y,z,C.wall);sB(x1,y,z,C.wall);}
       a++;b--;y++;}}
   // leaf decay around the site: clearing the footprint can cut a tree's trunk while its
-  // canopy hangs outside the border — vanilla-style, any leaf with no log within 2 blocks
-  // rots away, so no more floating leaf clusters between the houses
+  // canopy hangs outside the border. A leaf survives only if a REAL tree trunk is within
+  // 2 blocks — and a real trunk is a log column whose bottom sits on grass/dirt. House
+  // logs (corner posts, cabin walls) stand on plank/cobble floors, so they don't count
+  // and can't keep orphaned canopies alive.
+  const isTreeLog=(x,y,z)=>{
+    if(gB(x,y,z)!==LOG)return false;
+    let yy=y;while(gB(x,yy-1,z)===LOG)yy--;    // walk down to the column's bottom log
+    const u=gB(x,yy-1,z);return u===GRASS||u===DIRT;};
   for(let x=x0-4;x<=x1+4;x++)for(let z=z0-4;z<=z1+4;z++)
     for(let yy=h;yy<=h+11;yy++)
       if(gB(x,yy,z)===LEAF){
         let ok=false;
         for(let dx=-2;dx<=2&&!ok;dx++)for(let dy=-2;dy<=2&&!ok;dy++)for(let dz=-2;dz<=2&&!ok;dz++)
-          if(gB(x+dx,yy+dy,z+dz)===LOG)ok=true;
+          if(isTreeLog(x+dx,yy+dy,z+dz))ok=true;
         if(!ok)sB(x,yy,z,AIR);}
   return true;}
 function decorate(cx,cz){
@@ -632,17 +688,76 @@ function tileFor(b,f){switch(b){
   case BEDH:return f===3?17:8;case BEDF:return f===3?18:8; // bed: blanket top, plank frame sides
   case LOG:return(f===2||f===3)?6:5;
   case LEAF:return 7;case PLANK:return 8;
-  case COBBLE:return 10;case GLASS:return 11;
+  case COBBLE:return 10;case GLASS:return 11;case COALORE:return 19;
   case CTABLE:return f===3?9:f===2?8:f<2?14:15;}return 3;}
+// ---- torch light: vanilla block light, level 14 at the torch, -1 per block,
+// flood-filled through transparent cells. Recomputed per chunk mesh from every
+// torch in the 3x3 chunk neighbourhood (radius 14 can't reach further in).
+const torchSet=new Map();                    // "x,y,z" -> [x,y,z,id]: every torch seen in meshed chunks
+function bfsLight(L,x,y,z){
+  const q=[x,y,z,14];
+  for(let qi=0;qi<q.length;qi+=4){
+    const bx=q[qi],by=q[qi+1],bz=q[qi+2],lv=q[qi+3],k=bx+','+by+','+bz;
+    if((L.get(k)||0)>=lv)continue;
+    L.set(k,lv);
+    if(lv<=1)continue;
+    for(const[dx,dy,dz]of[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
+      const ny=by+dy;
+      if(ny>=0&&ny<H&&transp(gB(bx+dx,ny,bz+dz)))q.push(bx+dx,ny,bz+dz,lv-1);}}}
+function chunkTorchLight(c){
+  let L=null;
+  for(let ncx=c.cx-1;ncx<=c.cx+1;ncx++)for(let ncz=c.cz-1;ncz<=c.cz+1;ncz++){
+    const d=getChunk(ncx,ncz).data;
+    for(let i=0;i<d.length;i++)if(isTorch(d[i])){
+      const y=i>>8,x=ncx*CH+(i&15),z=ncz*CH+((i>>4)&15);
+      torchSet.set(x+','+y+','+z,[x,y,z,d[i]]);
+      bfsLight(L||(L=new Map()),x,y,z);}}
+  return L;}
+// ---- torch geometry: the exact vanilla models (template_torch/_wall.json) ----
+// floor: a 2x10x2px post [7,0,7]->[9,10,9]. wall: the same box with its base at
+// the wall-face centre 3.5px up, tilted 22.5 deg into the room (rotation origin
+// [0,3.5,8], angle -22.5, like vanilla). Sides sample the 2x10 texture strip
+// px[7,6..9,16], the top the glowing 2x2 coal cap px[7,6..9,8], the underside
+// the wood patch px[7,13..9,15]. Quads are emitted double-sided so the tilted
+// box never back-culls; shade:false like vanilla — full-bright vertex colour
+// with tl=14/15 so the flame never darkens at night.
+const tU=px=>(0+px)/(AT*TS),tV=px=>1-(4*TS+px)/(AT*TS);  // tile 20 = atlas col 0, row 4
+function torchQuad(P,N,U,CL,TL,I,q,n,u0,v0,u1,v1){       // q=[bl,br,tl,tr] world coords
+  for(const[qs,ns,us]of[[q,n,[[u0,v0],[u1,v0],[u0,v1],[u1,v1]]],
+      [[q[1],q[0],q[3],q[2]],[-n[0],-n[1],-n[2]],[[u1,v0],[u0,v0],[u1,v1],[u0,v1]]]]){
+    const n0=P.length/3;
+    for(let k=0;k<4;k++){P.push(qs[k][0],qs[k][1],qs[k][2]);N.push(ns[0],ns[1],ns[2]);
+      U.push(us[k][0],us[k][1]);CL.push(1,1,1);TL.push(14/15);}
+    I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);}}
+function emitTorch(P,N,U,CL,TL,I,wx,y,wz,b){
+  let C;                                                 // C(t,pa,pn): corner t up the post axis,
+  if(b===TORCH)C=(t,pa,pn)=>[wx+.5+pa/16,y+t,wz+.5+pn/16]; // +-1px along the two cross axes
+  else{
+    const[sx,sz]=TSUP[b],ax=-sz,az=sx,                   // a: sideways axis along the wall
+      ux=-sx*.3827,uy=.9239,uz=-sz*.3827,                // u: post axis, tilted 22.5deg off the wall
+      nx=-sx*.9239,ny=-.3827,nz=-sz*.9239,               // n: perpendicular cross axis
+      px=wx+.5+sx*.5,py=y+3.5/16,pz=wz+.5+sz*.5;         // base pivot: wall-face centre, 3.5px up
+    C=(t,pa,pn)=>[px+ux*t+ax*pa/16+nx*pn/16,py+uy*t+ny*pn/16,pz+uz*t+az*pa/16+nz*pn/16];}
+  const h=10/16,s0=tV(16),s1=tV(6);
+  torchQuad(P,N,U,CL,TL,I,[C(0,-1,1),C(0,1,1),C(h,-1,1),C(h,1,1)],[0,0,1],tU(7),s0,tU(9),s1);
+  torchQuad(P,N,U,CL,TL,I,[C(0,1,-1),C(0,-1,-1),C(h,1,-1),C(h,-1,-1)],[0,0,-1],tU(7),s0,tU(9),s1);
+  torchQuad(P,N,U,CL,TL,I,[C(0,1,1),C(0,1,-1),C(h,1,1),C(h,1,-1)],[1,0,0],tU(7),s0,tU(9),s1);
+  torchQuad(P,N,U,CL,TL,I,[C(0,-1,-1),C(0,-1,1),C(h,-1,-1),C(h,-1,1)],[-1,0,0],tU(7),s0,tU(9),s1);
+  torchQuad(P,N,U,CL,TL,I,[C(h,-1,1),C(h,1,1),C(h,-1,-1),C(h,1,-1)],[0,1,0],tU(7),tV(8),tU(9),tV(6)); // glowing coal cap
+  if(b!==TORCH)                                          // floor torch bottom is culled by the block below
+    torchQuad(P,N,U,CL,TL,I,[C(0,-1,-1),C(0,1,-1),C(0,-1,1),C(0,1,1)],[0,-1,0],tU(7),tV(15),tU(9),tV(13));}
 function buildChunkMesh(c){
   if(c.s){scene.remove(c.s);c.s.geometry.dispose();c.s=null;}
   if(c.w){scene.remove(c.w);c.w.geometry.dispose();c.w=null;}
-  const P=[],N=[],U=[],CL=[],I=[],WP=[],WN=[],WU=[],WI=[];
+  const P=[],N=[],U=[],CL=[],I=[],TL=[],WP=[],WN=[],WU=[],WI=[];
+  const LMAP=chunkTorchLight(c);               // block light from nearby torches (null = none around)
   for(let lx=0;lx<CH;lx++)for(let lz=0;lz<CH;lz++)for(let y=0;y<H;y++){
     const wx=c.cx*CH+lx,wz=c.cz*CH+lz;
     const b=c.data[(y*CH+lz)*CH+lx];if(!b)continue;
+    if(isTorch(b)){emitTorch(P,N,U,CL,TL,I,wx,y,wz,b);continue;}
     for(let f=0;f<6;f++){
-      const fc=FACES[f],nb=gB(wx+fc.n[0],y+fc.n[1],wz+fc.n[2]);
+      const fc=FACES[f],nx=wx+fc.n[0],ny=y+fc.n[1],nz=wz+fc.n[2],nb=gB(nx,ny,nz);
+      const lt=LMAP?(LMAP.get(nx+','+ny+','+nz)||0)/15:0; // face brightness = light in the cell it faces, like vanilla
       if(b===WATERB){
         if(nb!==AIR)continue;
         const n0=WP.length/3;
@@ -657,21 +772,21 @@ function buildChunkMesh(c){
         for(const co of fc.c){
           P.push(wx+lo[0]+(hi[0]-lo[0])*co[0],y+co[1],wz+lo[2]+(hi[2]-lo[2])*co[2]);
           N.push(...fc.n);
-          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);}
+          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);TL.push(lt);}
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
       }else if(isBed(b)){                        // bed: 9/16-high slab, blanket top, plank frame sides
         if(f!==3&&!(transp(nb)&&nb!==b)&&!isBed(nb))continue; // top face always shows (block above can't cover a slab)
         const t=tileFor(b,f),col=t%AT,row=(t/AT)|0,n0=P.length/3,sh=SHADE[f];
         for(const co of fc.c){
           P.push(wx+co[0],y+co[1]*.5625,wz+co[2]);N.push(...fc.n);
-          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);}
+          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);TL.push(lt);}
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
       }else{
         if(!(transp(nb)&&nb!==b))continue;
         const t=tileFor(b,f),col=t%AT,row=(t/AT)|0,n0=P.length/3,sh=SHADE[f];
         for(const co of fc.c){
           P.push(wx+co[0],y+co[1],wz+co[2]);N.push(...fc.n);
-          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);}
+          U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);TL.push(lt);}
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);}}}
   if(I.length){
     const g=new THREE.BufferGeometry();
@@ -679,6 +794,7 @@ function buildChunkMesh(c){
     g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
     g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
     g.setAttribute('color',new THREE.Float32BufferAttribute(CL,3));
+    g.setAttribute('tl',new THREE.Float32BufferAttribute(TL,1));
     g.setIndex(I);c.s=new THREE.Mesh(g,solidMat);scene.add(c.s);}
   if(WI.length){
     const g=new THREE.BufferGeometry();
@@ -697,12 +813,49 @@ function unmesh(c){
 // right after a chunk decorates, so edits far from spawn survive re-exploration too.
 let worldEdits={};
 function setBlock(x,y,z,v){
+  const was=gB(x,y,z);
   sB(x,y,z,v);
   const ek=ckey(Math.floor(x/CH),Math.floor(z/CH));
   (worldEdits[ek]||(worldEdits[ek]={}))[x+','+y+','+z]=v;
-  for(const[dx,dz]of[[0,0],[1,0],[-1,0],[0,1],[0,-1]]){
+  if(isTorch(v))torchSet.set(x+','+y+','+z,[x,y,z,v]);
+  else torchSet.delete(x+','+y+','+z);
+  // torch light spans chunks: edits involving (or near) a torch re-mesh the whole
+  // 3x3 neighbourhood so the baked light updates; plain edits keep the cheap path
+  let nearT=isTorch(v)||isTorch(was);
+  if(!nearT)for(const t of torchSet.values())
+    if(Math.abs(t[0]-x)<15&&Math.abs(t[2]-z)<15&&Math.abs(t[1]-y)<15){nearT=true;break;}
+  if(nearT){
+    for(let dcx=-1;dcx<=1;dcx++)for(let dcz=-1;dcz<=1;dcz++){
+      const c=getChunk(Math.floor(x/CH)+dcx,Math.floor(z/CH)+dcz);
+      if(c.meshed)c.dirty=true;}}
+  else for(const[dx,dz]of[[0,0],[1,0],[-1,0],[0,1],[0,-1]]){
     const c=getChunk(Math.floor((x+dx)/CH),Math.floor((z+dz)/CH));
-    if(c.meshed)c.dirty=true;}}
+    if(c.meshed)c.dirty=true;}
+  if(v===AIR){                                  // support gone: attached torches pop off, like vanilla
+    if(gB(x,y+1,z)===TORCH)popTorch(x,y+1,z);
+    for(const id in TSUP){const s=TSUP[id];
+      if(gB(x-s[0],y,z-s[1])===+id)popTorch(x-s[0],y,z-s[1]);}}}
+function popTorch(x,y,z){                       // a torch losing its support drops as an item
+  setBlock(x,y,z,AIR);addDrop(TORCH);
+  play('digWood',.5,.9);
+  for(let i=0;i<5;i++)spawnFlame(x+.35+Math.random()*.3,y+.2+Math.random()*.5,z+.35+Math.random()*.3,null,0x6d5736,true);}
+// torch placement, vanilla rules: on a solid TOP face (glass counts) -> floor
+// torch; on a full solid SIDE face -> wall torch hanging on that block; never
+// on ceilings, leaves, doors, beds, other torches, or into water
+function placeTorch(r,it){
+  const[x,y,z]=r.prev,[hx,hy,hz]=r.hit;
+  if(gB(x,y,z)!==AIR)return;
+  const fx=x-hx,fy=y-hy,fz=z-hz,sup=gB(hx,hy,hz); // (fx,fy,fz) = clicked face normal
+  let tb=0;
+  if(fy===1&&!fx&&!fz){if(!transp(sup)||sup===GLASS)tb=TORCH;}
+  else if(!fy&&Math.abs(fx)+Math.abs(fz)===1&&!transp(sup))
+    for(const id in TSUP){const s=TSUP[id];if(s[0]===-fx&&s[1]===-fz)tb=+id;}
+  if(!tb)return;                                 // invalid spot: vanilla just does nothing
+  if(!isCreative()&&--it.count<=0)hotbar[sel]=null;
+  drawHotbar();
+  setBlock(x,y,z,tb);flush();
+  player.swingT=SWING_DUR;
+  if(!play('digWood',.7,.8))SFX.place();}
 function flush(){for(const c of chunkMap.values())if(c.dirty&&c.meshed)buildChunkMesh(c);}
 function toggleDoor(x,y,z){
   const b=gB(x,y,z);
@@ -798,6 +951,7 @@ function updateSky(dt){
   // past 1.0 blew bright tiles like sand out to a flat shiny cream, killing the grain;
   // the baked SHADE vertex colours already carry the vanilla per-face ratios)
   sun.intensity=.06+.19*daylight;amb.intensity=.25+.5*daylight;
+  torchGlow.value=daylight;                    // torch glow yields to sunlight, takes over at night
   const sd=new THREE.Vector3(Math.cos(ang),elev,.35).normalize();
   sun.position.copy(player.pos).addScaledVector(sd,100);
   sun.target.position.copy(player.pos);
@@ -1011,6 +1165,7 @@ function resetWorld(newSeed){                     // wipe everything, regen from
   SEED=newSeed;
   for(const c of chunkMap.values())unmesh(c);
   chunkMap.clear();
+  torchSet.clear();                              // stale torch cells would leak light + particles
   villagerSpawns.length=0;
   for(const m of mobs)m.remove();
   mobs.length=0;
@@ -1075,8 +1230,8 @@ renderer.domElement.addEventListener('mousedown',e=>{
     attack();
   }else if(e.button===1){e.preventDefault();
     const r=raycast();
-    if(r&&r.hit){const b=gB(...r.hit);
-      const i=hotbar.findIndex(it=>it&&it.b===b);
+    if(r&&r.hit){const b=gB(...r.hit),pb=isTorch(b)?TORCH:b; // wall torches pick as the one torch item
+      const i=hotbar.findIndex(it=>it&&it.b===pb);
       if(i>=0){sel=i;drawHotbar();showItemName();}}
   }else if(e.button===2){
     const r=raycast();if(!r)return;
@@ -1086,10 +1241,12 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
     const b=gB(x,y,z);if(b!==AIR&&b!==WATERB)return;
+    const it=hotbar[sel];
+    if(!it||(it.b>=STICK_I&&it.b!==TORCH)||(!isCreative()&&it.count<=0))return; // tools/sticks/coal aren't placeable
+    if(it.b===TORCH){placeTorch(r,it);return;}   // torches have no collision box: even your own
+                                                 // feet cell is fine, so skip the overlap check
     const p=player.pos;
     if(x+1>p.x-.3&&x<p.x+.3&&z+1>p.z-.3&&z<p.z+.3&&y+1>p.y&&y<p.y+1.8)return;
-    const it=hotbar[sel];
-    if(!it||it.b>=STICK_I||(!isCreative()&&it.count<=0))return; // tools/sticks aren't placeable
     if(it.b===BEDF){                                  // beds occupy 2 blocks: foot here, head one
       const fwx=-Math.sin(player.yaw),fwz=-Math.cos(player.yaw);   // block further along the facing
       const ddx=Math.abs(fwx)>Math.abs(fwz)?Math.sign(fwx):0,ddz=Math.abs(fwx)>Math.abs(fwz)?0:Math.sign(fwz);
@@ -1845,22 +2002,27 @@ function attack(){
 // ================= MINING (hold left click, MC-style) =================
 // seconds to break by hand (~vanilla; stone-type shortened a bit since there are no tools)
 function hardFor(b){
-  let t=(b===STONE||b===COBBLE)?3.5:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
+  let t=isTorch(b)?.05:(b===STONE||b===COBBLE)?3.5:b===COALORE?4.5:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
     :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:(b===WOOL||isBed(b))?.8:.75;
   const it=hotbar[sel],tb=it?it.b:0;           // right tool in hand = ~4x faster, like vanilla
   if(tb===WAXE_I&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=4;
-  else if(tb===WPICK_I&&(b===STONE||b===COBBLE))t/=4;
+  else if(tb===WPICK_I&&(b===STONE||b===COBBLE||b===COALORE))t/=4;
   else if(tb===WSHOVEL_I&&(b===DIRT||b===GRASS||b===SAND))t/=4;
   else if(tb===WHOE_I&&b===LEAF)t=.1;
   return t;}
-// what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters
-function dropFor(b){return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
+// what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters,
+// coal ore drops the coal item — but only when mined with a pickaxe, like vanilla
+function dropFor(b){
+  if(isTorch(b))return TORCH;                  // wall variants all drop the one torch item
+  if(b===COALORE){const it=hotbar[sel];return it&&it.b===WPICK_I?COAL_I:0;}
+  return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
   if(b===WOOL||isBed(b))return{hit:'stepCloth',dig:'stepCloth',col:0xededed}; // cloth family, like vanilla wool
   if(b===SAND)return{hit:'stepSand',dig:'digSand',col:0xdcd49a};
   if(b===STONE||b===COBBLE)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
-  if(b===LOG||b===PLANK||b===CTABLE||isDoor(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40};
+  if(b===COALORE)return{hit:'stepStone',dig:'digStone',col:0x4a4a48}; // stone voice, sooty debris
+  if(b===LOG||b===PLANK||b===CTABLE||isDoor(b)||isTorch(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40}; // torch = wood family, like vanilla
   if(b===DIRT)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
   if(b===GLASS)return{hit:'stepStone',dig:'glassBreak',col:0xd6eef5};
   if(b===LEAF)return{hit:'stepGrass',dig:'digGrass',col:0x2e6b22};
@@ -1939,11 +2101,15 @@ function spawnZombie(){
   const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
   const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
   const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
+  for(const t of torchSet.values())            // torch-lit ground blocks hostile spawns, like vanilla
+    if(Math.abs(t[0]-x)<=12&&Math.abs(t[2]-z)<=12&&Math.abs(t[1]-h)<=6)return;
   mobs.push(new Mob('zombie',x+.5,h+1,z+.5));}
 function spawnSpider(){
   const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
   const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
   const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
+  for(const t of torchSet.values())            // torch-lit ground blocks hostile spawns, like vanilla
+    if(Math.abs(t[0]-x)<=12&&Math.abs(t[2]-z)<=12&&Math.abs(t[1]-h)<=6)return;
   mobs.push(new Mob('spider',x+.5,h+1,z+.5));}
   const particles=[];
 const flameG=new THREE.BoxGeometry(.12,.12,.12);
@@ -1958,6 +2124,17 @@ function spawnFlame(x,y,z,mob,col,debris){
     mob:mob||null,debris:!!debris,
     ox:mob?x-mob.pos.x:0,oy:mob?y-mob.pos.y:0,oz:mob?z-mob.pos.z:0};
   scene.add(p);particles.push(p);}
+// torch ambience: flame flickers + grey smoke wisps off nearby torch tips, like vanilla
+let torchFxT=0;
+function updateTorchFx(dt){
+  if((torchFxT-=dt)>0)return;torchFxT=.25;
+  for(const t of torchSet.values()){
+    if(Math.abs(t[0]-player.pos.x)>24||Math.abs(t[2]-player.pos.z)>24)continue;
+    if(gB(t[0],t[1],t[2])!==t[3]){torchSet.delete(t[0]+','+t[1]+','+t[2]);continue;} // stale entry
+    if(Math.random()>=.3)continue;
+    const s=TSUP[t[3]],ox=s?s[0]*.26:0,oz=s?s[1]*.26:0,oy=s?.8:.72; // tip: post top / tilted wall-post top
+    spawnFlame(t[0]+.5+ox+(Math.random()-.5)*.08,t[1]+oy,t[2]+.5+oz+(Math.random()-.5)*.08,
+      null,Math.random()<.25?0x555555:0,false);}}
 const smokeC=new THREE.Color(0x555555);
 function updateParticles(dt){
   for(let i=particles.length-1;i>=0;i--){
@@ -2001,6 +2178,7 @@ function updateMobs(dt){
 const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[LOG]:'Oak Log',
   [LEAF]:'Oak Leaves',[PLANK]:'Oak Planks',[COBBLE]:'Cobblestone',[GLASS]:'Glass',
   [CTABLE]:'Crafting Table',[WOOL]:'White Wool',[BEDF]:'White Bed',[BEDH]:'White Bed',
+  [COALORE]:'Coal Ore',[COAL_I]:'Coal',[TORCH]:'Torch',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -2024,10 +2202,17 @@ function makeBlockIcon(b){
   face(4,[u,-.5*u,0,v,cx,cy+16*u],.4);       // right side, darkest
   return c.toDataURL();}
 // ---- 2D item sprites, 16x16 rows of palette chars ('.' = transparent) ----
-// all six are the exact vanilla item textures (sampled by icon_gen.py from
-// the 1.21.4 game assets, textures/item/*.png)
-const ITEM_PAL={a:'#493615',b:'#281e0b',c:'#896727',d:'#684e1e',e:'#372910',f:'#755821',g:'#866526',h:'#20180a',i:'#594319',j:'#473614',k:'#886626',l:'#6a501e',m:'#6b511f',n:'#896726'};
+// all seven are the exact vanilla item textures (sampled from the 1.21.4
+// game assets, textures/item/*.png; letters o-w are the coal palette)
+const ITEM_PAL={a:'#493615',b:'#281e0b',c:'#896727',d:'#684e1e',e:'#372910',f:'#755821',g:'#866526',h:'#20180a',i:'#594319',j:'#473614',k:'#886626',l:'#6a501e',m:'#6b511f',n:'#896726',
+  o:'#1c1c1e',p:'#2e2e2e',q:'#323232',r:'#252525',s:'#363636',t:'#393e46',u:'#261e24',v:'#101015',w:'#1f1721',
+  x:'#ffd800',y:'#ff8f00',z:'#ffff97',A:'#ffffff',B:'#9f7f50',C:'#6d5736',D:'#957546',E:'#55452e', // x-I: torch palette
+  F:'#423522',G:'#3d301d',H:'#3b2e1b',I:'#372a17'};
 const ITEM_ART={
+  [COAL_I]:['................','................','.....oooo.......','....opqqpo......','...orstqrro.....','...osrqpqpro....','...ouurstsqro...','..orprurssprqv..','..optqrppprurv..','..orppprrrpuuuv.','..orrrurpurwrwv.','..owuruuuuuwuwv.','...vwwurwuuwwv..','....vwwwwvvvv...','.....vvvv.......','................'],
+  // torch icon: the exact vanilla block-texture placement (ground-anchored,
+  // rows 6-15) — the crafting RESULT slot alone shows a centered variant, see outIconFor
+  [TORCH]:['................','................','................','................','................','................','.......xy.......','.......zA.......','.......BC.......','.......DE.......','.......BF.......','.......BE.......','.......DE.......','.......CG.......','.......BH.......','.......CI.......'],
   [STICK_I]:['................','................','.............ab.','............acb.','...........acb..','..........adb...','.........acb....','........adb.....','.......acb......','......adb.......','.....acb........','....adb.........','...acb..........','..acb...........','..bb............','................'],
   [WSWORD_I]:['.............eee','............efgh','...........efgfh','..........efgfh.','.........efgfh..','........efgfh...','..ee...eigfh....','..eje.eigih.....','...eihifih......','...eiijih.......','....ejeh........','...adheeh.......','..acb.hheh......','eedb....hh......','ejh.............','hhh.............'],
   [WPICK_I]:['................','................','......eeeee.....','.....ekfllfeal..','......ehhhllkb..','..........aflh..','.........alblfh.','........akb.hlh.','.......alb..hlh.','......akb...hfh.','.....alb....hkh.','....akb......h..','...alb..........','..akb...........','..bb............','................'],
@@ -2043,6 +2228,12 @@ function itemCanvas(id){                       // shared by the hotbar icons and
 const makeItemIcon=id=>itemCanvas(id).toDataURL();
 const ICONS={};
 const iconFor=b=>ICONS[b]||(ICONS[b]=ITEM_ART[b]?makeItemIcon(b):makeBlockIcon(b));
+let torchOutIcon=null;             // crafting-RESULT slot only: the torch drawn 3px higher so it
+const outIconFor=b=>{              // sits centered; every other slot keeps the vanilla ground-anchored icon
+  if(b!==TORCH)return iconFor(b);
+  if(!torchOutIcon){const c=document.createElement('canvas');c.width=c.height=16;
+    c.getContext('2d').drawImage(itemCanvas(TORCH),0,-3);torchOutIcon=c.toDataURL();}
+  return torchOutIcon;};
 let sel=0;
 function drawHotbar(){
   const el=document.getElementById('hotbar');el.innerHTML='';
@@ -2128,9 +2319,10 @@ const addStack=it=>mergeInto([hotbar,invSlots],it);
 // bounding box of the grid equals the pattern (or its horizontal mirror, like
 // vanilla). 3-wide/3-tall patterns can only ever fit the crafting table's 3x3
 // grid, so tools genuinely require a crafting table - just like the real game.
-const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL};
+const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL,C:COAL_I};
 const RECIPES=[
   [['L'],PLANK,4],                  // 1 log -> 4 planks
+  [['C','S'],TORCH,4],              // vanilla torch: coal over a stick -> 4 torches
   [['WWW','PPP'],BEDF,1],           // vanilla bed: 3 wool over 3 planks (needs the crafting table)
   [['P','P'],STICK_I,4],            // 2 planks stacked -> 4 sticks
   [['PP','PP'],CTABLE,1],           // 2x2 planks -> crafting table
@@ -2202,13 +2394,14 @@ function slotClick(list,idx,e){
   if(list==='craft'||list==='tbl')updateCraft();
   play('uiClick',.3);
   drawHotbar();}                                   // redraws HUD + inventory screen
-function slotHTML(it){
-  return it?'<img src="'+iconFor(it.b)+'">'+(it.count>1?'<span class="cnt">'+it.count+'</span>':''):'';}
+function slotHTML(it,out){          // out: the crafting result slot (centered torch + lifted count)
+  return it?'<img src="'+(out?outIconFor(it.b):iconFor(it.b))+'">'+
+    (it.count>1?'<span class="cnt'+(out&&it.b===TORCH?' tcnt':'')+'">'+it.count+'</span>':''):'';}
 function refreshInv(){
   invEl.querySelectorAll('.islot').forEach(d=>{
     const l=d.dataset.list;if(l==='armor'||l==='off')return;
     const it=getSlot(l,+d.dataset.idx);
-    d.innerHTML=slotHTML(it);
+    d.innerHTML=slotHTML(it,l==='out');
     d.title=it?BNAME[it.b]||'Block':'';});
   heldEl.style.display=heldStack?'block':'none';
   if(heldStack)heldEl.innerHTML=slotHTML(heldStack);}
@@ -2349,10 +2542,22 @@ fpScene.add(fpArm);
 var fpHold=new THREE.Group();fpHold.rotation.order='ZYX';fpScene.add(fpHold);
 var holdBase=null;
 const HOLD_BLOCK={x:.46,y:-.54,z:-.7,rx:.14,ry:Math.PI/4,rz:0};   // corner pose, top face peeking
-const HOLD_ITEM={x:.72,y:-.36,z:-.74,rx:0,ry:-.3,rz:-1.42};       // tilted so the handle swings LEFT and the blade tip
-                                                                  // leans against the screen border withOUT being cut off:
-                                                                  // nothing clips on the right, the tip just kisses the
-                                                                  // edge — mirrored sprite, guard prong on the LEFT
+const HOLD_ITEM={x:.72,y:-.36,z:-.74,rx:0,ry:-.3,rz:-1.42};       // sword/stick: tilted so the handle swings LEFT and the
+                                                                  // blade tip leans against the screen border withOUT being
+                                                                  // cut off: nothing clips on the right, the tip just kisses
+                                                                  // the edge — mirrored sprite, guard prong on the LEFT
+// hafted tools carry the OPPOSITE way from the sword: the sword pose's big roll
+// buried the axe head off-screen and aimed the handle at the crosshair. Vanilla
+// 1st person shows the UNmirrored sprite (see heldMesh) — head up with the blade
+// edge facing LEFT, toward the crosshair, handle dropping off the bottom edge
+const HOLD_TOOL={x:.66,y:-.36,z:-.74,rx:0,ry:-.3,rz:.5}; // vanilla handheld.json firstperson_righthand rolls the
+                                                         // sprite EXACTLY 25° ([0,-90,25]); .5 rad ≈ 28.6° = that
+                                                         // 25° plus ~4° to cancel the clockwise shear our yaw +
+                                                         // corner perspective add — the head tip lands at ~100°,
+                                                         // just left of vertical, like the real game
+const isHafted=b=>b===WAXE_I||b===WPICK_I||b===WSHOVEL_I||b===WHOE_I;
+const upright=b=>isHafted(b)||b===TORCH; // upright items share the tool pose — vanilla's torch item
+                                         // uses item/generated's identical [0,-90,25] transform
 const holdCache={};
 function heldMesh(b){
   if(holdCache[b])return holdCache[b];
@@ -2361,8 +2566,11 @@ function heldMesh(b){
     const tex=new THREE.CanvasTexture(itemCanvas(b));
     tex.magFilter=tex.minFilter=THREE.NearestFilter;
     const pg=new THREE.PlaneGeometry(.62,.62);
-    pg.scale(-1,1,1);                                  // mirror like vanilla's 1st-person item: the
-    m=new THREE.Mesh(pg,                               // sword's guard prong then pokes out LEFT
+    if(!upright(b))pg.scale(-1,1,1);                   // mirror the sword/stick like vanilla (the sword's guard
+                                                       // prong then pokes out LEFT) — but NOT upright items
+                                                       // (hafted tools, torch): the flip put the axe blade on
+                                                       // the RIGHT; vanilla keeps the edge LEFT, toward the crosshair
+    m=new THREE.Mesh(pg,
       new THREE.MeshBasicMaterial({map:tex,transparent:true,alphaTest:.4,side:THREE.DoubleSide}));
   }else{
     const g=new THREE.BoxGeometry(.42,.42,.42);
@@ -2395,7 +2603,7 @@ function applyHeld(){                          // swap the displayed viewmodel (
   if(fpHold.children[0]!==m){
     while(fpHold.children.length)fpHold.remove(fpHold.children[0]);
     fpHold.add(m);}
-  holdBase=ITEM_ART[holdWantB]?HOLD_ITEM:HOLD_BLOCK;}
+  holdBase=ITEM_ART[holdWantB]?(upright(holdWantB)?HOLD_TOOL:HOLD_ITEM):HOLD_BLOCK;}
 updateFPHold();applyHeld();
 function updateFPArm(dt){
   // swingT (shared with the 3rd-person swing) drives a vanilla mining/attack arc —
@@ -2698,7 +2906,7 @@ function tick(){
     updateChunks();
     updateSky(dt);updatePlayer(dt);updateMobs(dt);
     updateMining(dt);
-    updateParticles(dt);
+    updateParticles(dt);updateTorchFx(dt);
     updateHighlight();
     if(sleepT>=0){                             // sleeping: fade to black, wake at sunrise, fade back
       sleepT+=dt;
