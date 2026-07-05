@@ -1079,6 +1079,7 @@ const SOUND_URLS={
   swim:seq('liquid/','swim',18),
   eat:seq('random/','eat',3),         // munching while eating + gulp at the end
   burp:['random/burp.ogg'],
+  orb:['random/orb.ogg'],             // XP-orb twinkle when claiming smelted output
   stepCloth:seq('step/','cloth',4),   // wool / bed
   stepGrass:seq('step/','grass',6),
   stepGravel:seq('step/','gravel',4),
@@ -2559,6 +2560,16 @@ function matchCraft(slots,w){       // w = grid width (2 or 3), slots is w*w lon
 function updateCraft(){
   craftOut=invMode==='table'?matchCraft(tableSlots,3):invMode==='furnace'?null:matchCraft(craftSlots,2);}
 function slotClick(list,idx,e){
+  // vanilla: manually claiming smelted output pays the furnace's stored XP out as
+  // orbs, so the orb-pickup twinkle (entity.experience_orb.pickup, random/orb.ogg)
+  // rings the moment you grab it — with vanilla's exact random pitch roll
+  const before=list==='fout'&&getSlot('fout',0)?getSlot('fout',0).count:0;
+  slotClickInner(list,idx,e);
+  const now=getSlot('fout',0);
+  if(before>(now?now.count:0)){
+    play('orb',.5,((Math.random()-Math.random())*.7+1.8)*.5);
+    setTimeout(()=>play('orb',.4,((Math.random()-Math.random())*.7+1.8)*.5),120);}} // second orb of the payout
+function slotClickInner(list,idx,e){
   if(list==='armor'||list==='off')return;          // cosmetic slots: no armor items yet
   if(list==='out'){                                // take the crafting result
     if(!craftOut)return;
