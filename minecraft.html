@@ -2002,11 +2002,17 @@ function attack(){
 // ================= MINING (hold left click, MC-style) =================
 // seconds to break by hand (~vanilla; stone-type shortened a bit since there are no tools)
 function hardFor(b){
-  let t=isTorch(b)?.05:(b===STONE||b===COBBLE)?3.5:b===COALORE?4.5:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
-    :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:(b===WOOL||isBed(b))?.8:.75;
   const it=hotbar[sel],tb=it?it.b:0;           // right tool in hand = ~4x faster, like vanilla
+  // pickaxe-class blocks use the EXACT vanilla formula (minecraft.wiki/w/Breaking):
+  // time = hardness x1.5 / toolspeed(wood=2) with a pick, hardness x5 bare-handed —
+  // stone 1.5 -> 1.13s/7.5s, cobble 2 -> 1.5s/10s, coal ore 3 -> 2.25s/15s.
+  // Bare-hand breaking WORKS but drops nothing (see dropFor), like vanilla
+  if(b===STONE||b===COBBLE||b===COALORE){
+    const hd=b===STONE?1.5:b===COBBLE?2:3;
+    return tb===WPICK_I?hd*1.5/2:hd*5;}
+  let t=isTorch(b)?.05:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
+    :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:(b===WOOL||isBed(b))?.8:.75;
   if(tb===WAXE_I&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=4;
-  else if(tb===WPICK_I&&(b===STONE||b===COBBLE||b===COALORE))t/=4;
   else if(tb===WSHOVEL_I&&(b===DIRT||b===GRASS||b===SAND))t/=4;
   else if(tb===WHOE_I&&b===LEAF)t=.1;
   return t;}
@@ -2014,8 +2020,11 @@ function hardFor(b){
 // coal ore drops the coal item — but only when mined with a pickaxe, like vanilla
 function dropFor(b){
   if(isTorch(b))return TORCH;                  // wall variants all drop the one torch item
-  if(b===COALORE){const it=hotbar[sel];return it&&it.b===WPICK_I?COAL_I:0;}
-  return b===GRASS?DIRT:b===STONE?COBBLE:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
+  if(b===STONE||b===COBBLE||b===COALORE){      // pickaxe-class: no pickaxe in hand = the block
+    const it=hotbar[sel];                      // shatters and drops NOTHING, like vanilla
+    if(!it||it.b!==WPICK_I)return 0;
+    return b===STONE?COBBLE:b===COALORE?COAL_I:b;}
+  return b===GRASS?DIRT:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
   if(b===WOOL||isBed(b))return{hit:'stepCloth',dig:'stepCloth',col:0xededed}; // cloth family, like vanilla wool
