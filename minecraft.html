@@ -120,12 +120,19 @@
     box-shadow:inset 3px 3px 0 #373737,inset -3px -3px 0 #fff;overflow:hidden}
   #pview canvas{position:static;width:128px;height:192px;display:block}
   #craftWrap{margin-left:16px}
-  .invLabel{color:#3f3f3f;font-size:24px;font-weight:bold;margin:0 0 8px 2px}
+  .invLabel{color:#3f3f3f;font-size:26px;font-weight:bold;margin:0 0 8px 2px;font-family:'VT323',monospace} /* MC pixel font on GUI labels */
+  .furnT{text-align:center;margin-left:0}              /* the furnace title sits centered, like vanilla */
+  .fgauge{position:relative;width:37px;height:37px}    /* flame / arrow gauge: dark 'empty' sprite + lit overlay */
+  .fgauge img{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+  .fgauge.arrowG{width:64px;height:43px}
   #craftRow{display:flex;align-items:center}
   #craftGrid{display:grid;grid-template-columns:repeat(2,48px)}
   #craftArrow{margin:0 10px}
   /* crafting table screen: 3x3 grid replaces the player/armor top section */
   #tableTop{display:none}
+  #furnTop{display:none}
+  #furnRow{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:6px} /* cluster sits centered in the panel, like vanilla */
+  #furnCol{display:flex;flex-direction:column;align-items:center;gap:5px}
   #tableRow{display:flex;align-items:center;justify-content:center;margin-bottom:18px}
   #tableGrid{display:grid;grid-template-columns:repeat(3,48px)}
   #tableRow svg{margin:0 24px}
@@ -187,6 +194,20 @@
         <div id="tableOutWrap"></div>
       </div>
     </div>
+    <!-- ---- furnace top section: input over flame over fuel, arrow, output ---- -->
+    <div id="furnTop">
+      <div class="invLabel furnT">Furnace</div>
+      <div id="furnRow">
+        <div id="furnCol">
+          <div id="furnInWrap"></div>
+          <div class="fgauge"><img id="flameBg"><img id="flameFg"></div>
+          <div id="furnFuelWrap"></div>
+        </div>
+        <div class="fgauge arrowG"><img id="arrowBg"><img id="arrowFg"></div>
+        <div id="furnOutWrap"></div>
+      </div>
+    </div>
+    <div class="invLabel" id="invLbl">Inventory</div>
     <div id="invGrid"></div>
     <div id="invHotRow"></div>
   </div>
@@ -336,7 +357,7 @@ const SFX={
               setTimeout(()=>noiseSnd({dur:.07,vol:.3,f0:500,f1:200}),70);}}; // thud
 
 // ================= TEXTURE ATLAS =================
-const TS=16,AT=5; // 5x5 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed head/foot tops, 19 coal ore, 20 torch)
+const TS=16,AT=5; // 5x5 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed tops, 19 coal ore, 20 torch, 21-24 furnace top/side/front/front-lit)
 const atlasC=document.createElement('canvas');atlasC.width=atlasC.height=TS*AT;
 const actx=atlasC.getContext('2d');
 const rnd=a=>a[(Math.random()*a.length)|0];
@@ -408,6 +429,18 @@ const TORCH_PX={6:['#ffd800','#ff8f00'],7:['#ffff97','#ffffff'],8:['#9f7f50','#6
   9:['#957546','#55452e'],10:['#9f7f50','#423522'],11:['#9f7f50','#55452e'],12:['#957546','#55452e'],
   13:['#6d5736','#3d301d'],14:['#9f7f50','#3b2e1b'],15:['#6d5736','#372a17']};
 fillTile(20,(x,y)=>(x===7||x===8)&&TORCH_PX[y]?TORCH_PX[y][x-7]:null);
+// vanilla furnace textures (exact pixels, 1.21.4 assets, auto-extracted): base-36
+// palette indices, one char per pixel. Bottom face reuses the top, like vanilla
+const TILE_CS='0123456789abcdefghijklmnopqrstuvwxyz';
+const fillTilePxN=(t,pal,idx)=>fillTile(t,(x,y)=>pal[TILE_CS.indexOf(idx[y*16+x])]);
+fillTilePxN(21,['#504e4e','#3c3b3b','#5d5b5b','#686868','#858585','#777777','#919191'],
+  '0000100011101100022234452335432002566552464344500364662566643550054645235666253113233245335422010246346664224430156643666346665116666554346665400666643343544400056665466643223112545366666436501422325466654440056225235553445002535450233235300000100011110000');
+fillTilePxN(22,['#504e4e','#3c3b3b','#5d5b5b','#686868','#777777','#858585','#919191','#c5c5c5','#b0b0b0','#a8a8a8','#9d9d9d','#7f7f7f'],
+  '00001000111011000233435433343320024662325543554003555623465535500245542435652431122332565345300103664355653344201455635542655541134432242655543007877777777777900a9989888888a8a11aa999999999996016aaaa9a99999a600b6a6aaaa9a6a6b003344344444433300000100011110000');
+fillTilePxN(23,['#504e4e','#3c3b3b','#686868','#777777','#5d5b5b','#919191','#858585','#212121','#111111','#a8a8a8','#b0b0b0','#c5c5c5','#9d9d9d'],
+  '000010001110110002233232332323401435362365653230026617777771632003618888888813411328887777888541032881111118854013599aaaaaa9953113632432423232200babbbbbbbbbbb900999a966669a9ac10c954788887459c005508888888803c00358887777888c5015387777777783c11211100000011121');
+fillTilePxN(24,['#504e4e','#3c3b3b','#686868','#777777','#5d5b5b','#919191','#858585','#212121','#111111','#a8a8a8','#b0b0b0','#c5c5c5','#9d9d9d','#ff8f00','#c35d1b','#ffd800','#ffff97','#ffffff'],
+  '000010001110110002233232332323401435362365653230026617777771632003618888888813411328887777888541032881111118854013599aaaaaa9953113632432423232200babbbbbbbbbbb900999a966669a9ac10c954788887d59c00550d8eddeff03c00358ffdgffgd8c50153efgfhfhgfe3c1121ddhghdgfdf121');
 const atlasTex=new THREE.CanvasTexture(atlasC);
 atlasTex.magFilter=atlasTex.minFilter=THREE.NearestFilter;
 const solidMat=new THREE.MeshLambertMaterial({map:atlasTex,vertexColors:true,alphaTest:.3});
@@ -474,6 +507,14 @@ const STICK_I=20,WSWORD_I=21,WAXE_I=22,WPICK_I=23,WSHOVEL_I=24,WHOE_I=25,COAL_I=
 const TORCH=27,TORCHE=28,TORCHW=29,TORCHS=30,TORCHN=31;
 const TSUP={28:[1,0],29:[-1,0],30:[0,1],31:[0,-1]}; // wall id -> [dx,dz] from torch cell to its support
 const isTorch=b=>b===TORCH||(b>=TORCHE&&b<=TORCHN);
+// furnace: two block states like vanilla (lit swaps the front texture + emits light 13)
+const FURN=32,FURNL=33;
+// mob-drop / food items (all values from minecraft.wiki):
+const FLESH_I=34,STRING_I=35,EYE_I=36,PORK_I=37,PORKC_I=38,CHICK_I=39,CHICKC_I=40,MUT_I=41,MUTC_I=42;
+const FOOD_PTS={[FLESH_I]:4,[EYE_I]:2,[PORK_I]:3,[PORKC_I]:8,[CHICK_I]:2,[CHICKC_I]:6,[MUT_I]:2,[MUTC_I]:6}; // hunger points, vanilla-exact
+const isFood=b=>FOOD_PTS[b]!==undefined;
+const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I};    // furnace recipes: raw -> cooked
+const FUEL={[COAL_I]:80,[PLANK]:15,[LOG]:15,[STICK_I]:5};            // burn seconds: coal 8 items, plank/log 1.5, stick 0.5 (x10s per smelt)
 const isTool=b=>b>=WSWORD_I&&b<=WHOE_I;
 const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
@@ -689,13 +730,16 @@ function tileFor(b,f){switch(b){
   case LOG:return(f===2||f===3)?6:5;
   case LEAF:return 7;case PLANK:return 8;
   case COBBLE:return 10;case GLASS:return 11;case COALORE:return 19;
-  case CTABLE:return f===3?9:f===2?8:f<2?14:15;}return 3;}
+  case CTABLE:return f===3?9:f===2?8:f<2?14:15;
+  case FURN:return(f===2||f===3)?21:f<2?22:23;   // stone top+bottom, riveted sides, mouth front
+  case FURNL:return(f===2||f===3)?21:f<2?22:24;} // lit: the mouth glows (vanilla furnace_front_on)
+  return 3;}
 // ---- torch light: vanilla block light, level 14 at the torch, -1 per block,
 // flood-filled through transparent cells. Recomputed per chunk mesh from every
 // torch in the 3x3 chunk neighbourhood (radius 14 can't reach further in).
 const torchSet=new Map();                    // "x,y,z" -> [x,y,z,id]: every torch seen in meshed chunks
-function bfsLight(L,x,y,z){
-  const q=[x,y,z,14];
+function bfsLight(L,x,y,z,lv0){
+  const q=[x,y,z,lv0||14];
   for(let qi=0;qi<q.length;qi+=4){
     const bx=q[qi],by=q[qi+1],bz=q[qi+2],lv=q[qi+3],k=bx+','+by+','+bz;
     if((L.get(k)||0)>=lv)continue;
@@ -708,10 +752,10 @@ function chunkTorchLight(c){
   let L=null;
   for(let ncx=c.cx-1;ncx<=c.cx+1;ncx++)for(let ncz=c.cz-1;ncz<=c.cz+1;ncz++){
     const d=getChunk(ncx,ncz).data;
-    for(let i=0;i<d.length;i++)if(isTorch(d[i])){
+    for(let i=0;i<d.length;i++)if(isTorch(d[i])||d[i]===FURNL){
       const y=i>>8,x=ncx*CH+(i&15),z=ncz*CH+((i>>4)&15);
-      torchSet.set(x+','+y+','+z,[x,y,z,d[i]]);
-      bfsLight(L||(L=new Map()),x,y,z);}}
+      if(isTorch(d[i]))torchSet.set(x+','+y+','+z,[x,y,z,d[i]]);
+      bfsLight(L||(L=new Map()),x,y,z,d[i]===FURNL?13:14);}} // lit furnace glows at 13, like vanilla
   return L;}
 // ---- torch geometry: the exact vanilla models (template_torch/_wall.json) ----
 // floor: a 2x10x2px post [7,0,7]->[9,10,9]. wall: the same box with its base at
@@ -821,7 +865,7 @@ function setBlock(x,y,z,v){
   else torchSet.delete(x+','+y+','+z);
   // torch light spans chunks: edits involving (or near) a torch re-mesh the whole
   // 3x3 neighbourhood so the baked light updates; plain edits keep the cheap path
-  let nearT=isTorch(v)||isTorch(was);
+  let nearT=isTorch(v)||isTorch(was)||v===FURNL||was===FURNL; // lit-furnace swaps re-bake light too
   if(!nearT)for(const t of torchSet.values())
     if(Math.abs(t[0]-x)<15&&Math.abs(t[2]-z)<15&&Math.abs(t[1]-y)<15){nearT=true;break;}
   if(nearT){
@@ -876,6 +920,45 @@ function bedPartner(x,y,z){                     // the other half sits in one of
 function breakBed(x,y,z){
   const p=bedPartner(x,y,z);
   setBlock(x,y,z,AIR);if(p)setBlock(...p,AIR);}
+// ---- furnace: per-position state (input/fuel/output stacks + burn/cook timers),
+// vanilla logic — fuel ignites only when something can smelt, 10s per item, the
+// block swaps to the lit state while burning (glowing front + block light 13),
+// progress decays at 2x when the fire goes out. Persisted with the world save.
+const furnaces={};
+const fkey=(x,y,z)=>x+','+y+','+z;
+function furnaceAt(x,y,z){
+  return furnaces[fkey(x,y,z)]||(furnaces[fkey(x,y,z)]={i:null,f:null,o:null,burn:0,burnMax:0,cook:0});}
+let openFurnKey=null;                            // furnace position the GUI is showing
+function updateFurnaces(dt){
+  for(const k in furnaces){
+    const s=furnaces[k];
+    const out=s.i&&SMELT[s.i.b];
+    const can=out&&(!s.o||(s.o.b===out&&s.o.count<stackMax(out)));
+    if(s.burn<=0&&can&&s.f&&FUEL[s.f.b]){        // ignite a fuel unit
+      s.burn=s.burnMax=FUEL[s.f.b];
+      if(--s.f.count<=0)s.f=null;
+      const p=k.split(',').map(Number);
+      if(gB(p[0],p[1],p[2])===FURN){setBlock(p[0],p[1],p[2],FURNL);flush();}
+      if(invOpen&&openFurnKey===k)refreshInv();}
+    if(s.burn>0){
+      s.burn-=dt;
+      if(can){
+        s.cook+=dt;
+        if(s.cook>=10){                          // vanilla: 200 ticks per smelt
+          s.cook=0;
+          if(s.o)s.o.count++;else s.o=stack(out,1);
+          if(--s.i.count<=0)s.i=null;
+          if(invOpen&&openFurnKey===k)refreshInv();}}
+      else s.cook=Math.max(0,s.cook-dt*2);
+      if(s.burn<=0){                             // fire went out
+        const p=k.split(',').map(Number);
+        if(gB(p[0],p[1],p[2])===FURNL){setBlock(p[0],p[1],p[2],FURN);flush();}}}
+    else s.cook=Math.max(0,s.cook-dt*2);}}
+function spillFurnace(x,y,z){                    // mining a furnace hands its contents back
+  const s=furnaces[fkey(x,y,z)];if(!s)return;
+  for(const st of[s.i,s.f,s.o])if(st)addStack(st);
+  if(openFurnKey===fkey(x,y,z))openFurnKey=null;
+  delete furnaces[fkey(x,y,z)];drawHotbar();}
 // ---- sleeping: right-click a bed at night skips to sunrise, like vanilla ----
 let sleepT=-1;                                  // >=0: fade-out progress of the sleep transition
 function trySleep(){
@@ -994,6 +1077,8 @@ const SOUND_URLS={
   chickenEgg:['mob/chicken/plop.ogg'],        // the egg-laying "plop"
   splash:['liquid/splash.ogg','liquid/splash2.ogg'],
   swim:seq('liquid/','swim',18),
+  eat:seq('random/','eat',3),         // munching while eating + gulp at the end
+  burp:['random/burp.ogg'],
   stepCloth:seq('step/','cloth',4),   // wool / bed
   stepGrass:seq('step/','grass',6),
   stepGravel:seq('step/','gravel',4),
@@ -1166,6 +1251,7 @@ function resetWorld(newSeed){                     // wipe everything, regen from
   for(const c of chunkMap.values())unmesh(c);
   chunkMap.clear();
   torchSet.clear();                              // stale torch cells would leak light + particles
+  for(const k in furnaces)delete furnaces[k];openFurnKey=null;
   villagerSpawns.length=0;
   for(const m of mobs)m.remove();
   mobs.length=0;
@@ -1230,19 +1316,23 @@ renderer.domElement.addEventListener('mousedown',e=>{
     attack();
   }else if(e.button===1){e.preventDefault();
     const r=raycast();
-    if(r&&r.hit){const b=gB(...r.hit),pb=isTorch(b)?TORCH:b; // wall torches pick as the one torch item
+    if(r&&r.hit){const b=gB(...r.hit),pb=isTorch(b)?TORCH:b===FURNL?FURN:b; // pick torches/lit furnaces as their items
       const i=hotbar.findIndex(it=>it&&it.b===pb);
       if(i>=0){sel=i;drawHotbar();showItemName();}}
   }else if(e.button===2){
-    const r=raycast();if(!r)return;
-    if(r.hit&&isDoor(gB(...r.hit))){player.swingT=SWING_DUR;toggleDoor(...r.hit);return;} // vanilla swings on use too
-    if(r.hit&&isBed(gB(...r.hit))){trySleep();return;}         // use a bed: sleep through the night
-    if(r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
-    if(!r.prev)return;
+    const r=raycast();
+    if(r&&r.hit&&isDoor(gB(...r.hit))){player.swingT=SWING_DUR;toggleDoor(...r.hit);return;} // vanilla swings on use too
+    if(r&&r.hit&&isBed(gB(...r.hit))){trySleep();return;}         // use a bed: sleep through the night
+    if(r&&r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
+    if(r&&r.hit&&(gB(...r.hit)===FURN||gB(...r.hit)===FURNL)){    // use the furnace: smelting GUI
+      openFurnKey=fkey(...r.hit);furnaceAt(...r.hit);openInv('furnace');return;}
+    const eit=hotbar[sel];                       // food in hand + room in the belly: hold to eat, like vanilla
+    if(eit&&isFood(eit.b)&&eit.count>0&&(player.food<20||isCreative())){eating=true;eatT=0;return;}
+    if(!r||!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
     const b=gB(x,y,z);if(b!==AIR&&b!==WATERB)return;
     const it=hotbar[sel];
-    if(!it||(it.b>=STICK_I&&it.b!==TORCH)||(!isCreative()&&it.count<=0))return; // tools/sticks/coal aren't placeable
+    if(!it||(it.b>=STICK_I&&it.b!==TORCH&&it.b!==FURN)||(!isCreative()&&it.count<=0))return; // tools/sticks/foods aren't placeable
     if(it.b===TORCH){placeTorch(r,it);return;}   // torches have no collision box: even your own
                                                  // feet cell is fine, so skip the overlap check
     const p=player.pos;
@@ -1263,7 +1353,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
     setBlock(x,y,z,it.b);flush();
     player.swingT=SWING_DUR;   // placing swings the arm (1st-person viewmodel + 3rd-person body), like vanilla
     if(!play(matFor(it.b).dig,.7,.8))SFX.place();}}); // vanilla: place sound = the block's dig family at fixed 0.8 pitch
-addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;});
+addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;if(e.button===2)eating=false;});
 // ---- ghost-proof clutch binding: mouse side buttons (Back/Forward) toggle the inventory.
 // The mouse is a separate device, so no amount of held keyboard keys (W+Shift+Space...)
 // can stop these from getting through — guaranteed mid-parkour inventory access.
@@ -1738,10 +1828,17 @@ class Mob{
     this.vy=Math.max(this.vy,4.2);           // little jump, ~0.4 blocks like MC
     this.hurtT=.5;                           // Minecraft hurt flash: solid red for half a second
     if(dying){this.dying=0;this.hurtT=99;    // stay red while keeling over
-      if(this.type==='pig'||this.type==='sheep'||this.type==='chicken') // food animals restore hunger
-        player.food=Math.min(20,player.food+(this.type==='pig'?8:this.type==='sheep'?6:4));
-      if(this.type==='sheep'){addDrop(WOOL);drawHotbar(); // vanilla: an unsheared sheep always drops exactly 1 wool
-        S('pop',.5,()=>{});}}
+      // vanilla loot tables (minecraft.wiki), no Looting: zombie 0-2 rotten flesh;
+      // spider 0-2 string + 1/3 chance of a spider eye (player kills only — ours are);
+      // pig 1-3 raw porkchop; chicken 1 raw chicken; sheep 1 wool + 1-2 raw mutton
+      const n02=()=>Math.random()*3|0,n1=n=>1+(Math.random()*n|0);
+      if(this.type==='zombie')for(let i=n02();i>0;i--)addDrop(FLESH_I);
+      else if(this.type==='spider'){for(let i=n02();i>0;i--)addDrop(STRING_I);
+        if(Math.random()<1/3)addDrop(EYE_I);}
+      else if(this.type==='pig')for(let i=n1(3);i>0;i--)addDrop(PORK_I);
+      else if(this.type==='chicken')addDrop(CHICK_I);
+      else if(this.type==='sheep'){addDrop(WOOL);for(let i=n1(2);i>0;i--)addDrop(MUT_I);}
+      drawHotbar();}
     else if(this.type==='spider')this.aggroT=12; // provoked: hostile even in daylight, like vanilla
     else if(this.type!=='zombie'){           // animals+villagers bolt; zombies+spiders keep coming
       this.dir=away;this.moving=true;
@@ -2007,8 +2104,8 @@ function hardFor(b){
   // time = hardness x1.5 / toolspeed(wood=2) with a pick, hardness x5 bare-handed —
   // stone 1.5 -> 1.13s/7.5s, cobble 2 -> 1.5s/10s, coal ore 3 -> 2.25s/15s.
   // Bare-hand breaking WORKS but drops nothing (see dropFor), like vanilla
-  if(b===STONE||b===COBBLE||b===COALORE){
-    const hd=b===STONE?1.5:b===COBBLE?2:3;
+  if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL){
+    const hd=b===STONE?1.5:b===COALORE?3:b===COBBLE?2:3.5; // furnace hardness 3.5, like vanilla
     return tb===WPICK_I?hd*1.5/2:hd*5;}
   let t=isTorch(b)?.05:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
     :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:(b===WOOL||isBed(b))?.8:.75;
@@ -2020,16 +2117,16 @@ function hardFor(b){
 // coal ore drops the coal item — but only when mined with a pickaxe, like vanilla
 function dropFor(b){
   if(isTorch(b))return TORCH;                  // wall variants all drop the one torch item
-  if(b===STONE||b===COBBLE||b===COALORE){      // pickaxe-class: no pickaxe in hand = the block
-    const it=hotbar[sel];                      // shatters and drops NOTHING, like vanilla
+  if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL){ // pickaxe-class: no pickaxe in hand =
+    const it=hotbar[sel];                      // the block shatters and drops NOTHING, like vanilla
     if(!it||it.b!==WPICK_I)return 0;
-    return b===STONE?COBBLE:b===COALORE?COAL_I:b;}
+    return b===STONE?COBBLE:b===COALORE?COAL_I:b===FURNL?FURN:b;}
   return b===GRASS?DIRT:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
   if(b===WOOL||isBed(b))return{hit:'stepCloth',dig:'stepCloth',col:0xededed}; // cloth family, like vanilla wool
   if(b===SAND)return{hit:'stepSand',dig:'digSand',col:0xdcd49a};
-  if(b===STONE||b===COBBLE)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
+  if(b===STONE||b===COBBLE||b===FURN||b===FURNL)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
   if(b===COALORE)return{hit:'stepStone',dig:'digStone',col:0x4a4a48}; // stone voice, sooty debris
   if(b===LOG||b===PLANK||b===CTABLE||isDoor(b)||isTorch(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40}; // torch = wood family, like vanilla
   if(b===DIRT)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
@@ -2057,6 +2154,29 @@ const crackMesh=new THREE.Mesh(new THREE.BoxGeometry(1.004,1.004,1.004),crackMat
 crackMesh.visible=false;scene.add(crackMesh);
 let mining=null,leftDown=false;
 function stopMining(){mining=null;crackMesh.visible=false;}
+// ---- eating: hold right-click with food selected; 1.61s (32 ticks) like vanilla,
+// munch sounds + crumb particles while chewing, burp + hunger restore at the end.
+// Holding the button chain-eats the next item, exactly like the real game.
+let eating=false,eatT=0;
+function updateEating(dt){
+  const it=hotbar[sel];
+  if(!eating||invOpen||quitOpen||!it||!isFood(it.b)||it.count<=0||(player.food>=20&&!isCreative())){
+    eating=false;eatT=0;return;}
+  const prev=eatT;eatT+=dt;
+  if((prev%.24)>(eatT%.24))play('eat',.6,.85+Math.random()*.3); // munch every ~1/4s
+  if(Math.random()<dt*14){                       // food crumbs sprayed in front of the face
+    updateAim();
+    const cols=Object.values(ITEM_PALS[it.b]||{});
+    const col=parseInt((cols[Math.random()*cols.length|0]||'#c56541').slice(1),16);
+    spawnFlame(aimOrigin.x+aimDir.x*.45+(Math.random()-.5)*.15,
+               aimOrigin.y+aimDir.y*.45-.15,
+               aimOrigin.z+aimDir.z*.45+(Math.random()-.5)*.15,null,col,true);}
+  if(eatT>=1.61){
+    player.food=Math.min(20,player.food+FOOD_PTS[it.b]); // vanilla hunger points
+    play('burp',.7,1);
+    if(!isCreative()&&--it.count<=0)hotbar[sel]=null;
+    drawHotbar();
+    eatT=0;}}
 function addDrop(b){
   if(isCreative())return;                      // creative: blocks are infinite anyway
   if(!addStack({b,count:1}))return;            // hotbar + inventory completely full: drop is lost
@@ -2080,6 +2200,7 @@ function updateMining(dt){
   crackMesh.visible=true;crackMesh.position.set(x+.5,y+.5,z+.5);
   crackMat.map=crackTex[Math.min(9,(mining.t/mining.need*10)|0)];
   if(mining.t>=mining.need){
+    if(b===FURN||b===FURNL)spillFurnace(x,y,z);  // a broken furnace hands back whatever was inside
     if(isDoor(b))breakDoor(x,y,z);else if(isBed(b))breakBed(x,y,z);else setBlock(x,y,z,AIR);
     flowWater(x,y,z);flush();
     if(!play(m.dig,.9,.8))SFX.dig(); // break sound: vanilla plays it at fixed 0.8 pitch, full volume
@@ -2098,25 +2219,29 @@ function crowded(x,z,zombie){
     if((zombie?hostile:animal)&&
        Math.abs(m.pos.x-x)<16&&Math.abs(m.pos.z-z)<16&&++n>=4)return true;}
   return false;}
+// groundH() sees THROUGH logs/leaves (by design, for tree planting) — so under a
+// canopy it returns the grass beneath the trunk and a mob would materialize INSIDE
+// the tree. Require actual body + head room over the spawn cell, like vanilla
+const spawnClear=(x,h,z)=>!isSolid(gB(x,h+1,z))&&!isSolid(gB(x,h+2,z));
 function spawnAnimal(){
   const a=Math.random()*Math.PI*2,d2=14+Math.random()*14;
   const x=Math.floor(player.pos.x+Math.sin(a)*d2),z=Math.floor(player.pos.z+Math.cos(a)*d2);
   const h=groundH(x,z);
-  if(h>WATER&&gB(x,h,z)===GRASS&&!crowded(x+.5,z+.5,false)){
+  if(h>WATER&&gB(x,h,z)===GRASS&&spawnClear(x,h,z)&&!crowded(x+.5,z+.5,false)){
     const r=Math.random(),type=r<1/3?'pig':r<2/3?'sheep':'chicken'; // equal odds for all three
     mobs.push(new Mob(type,x+.5,h+1,z+.5));}}
 
 function spawnZombie(){
   const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
   const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
-  const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
+  const h=groundH(x,z);if(h<=WATER||!spawnClear(x,h,z)||crowded(x+.5,z+.5,true))return;
   for(const t of torchSet.values())            // torch-lit ground blocks hostile spawns, like vanilla
     if(Math.abs(t[0]-x)<=12&&Math.abs(t[2]-z)<=12&&Math.abs(t[1]-h)<=6)return;
   mobs.push(new Mob('zombie',x+.5,h+1,z+.5));}
 function spawnSpider(){
   const a=Math.random()*Math.PI*2,d=18+Math.random()*10;
   const x=Math.floor(player.pos.x+Math.sin(a)*d),z=Math.floor(player.pos.z+Math.cos(a)*d);
-  const h=groundH(x,z);if(h<=WATER||crowded(x+.5,z+.5,true))return;
+  const h=groundH(x,z);if(h<=WATER||!spawnClear(x,h,z)||crowded(x+.5,z+.5,true))return;
   for(const t of torchSet.values())            // torch-lit ground blocks hostile spawns, like vanilla
     if(Math.abs(t[0]-x)<=12&&Math.abs(t[2]-z)<=12&&Math.abs(t[1]-h)<=6)return;
   mobs.push(new Mob('spider',x+.5,h+1,z+.5));}
@@ -2133,17 +2258,30 @@ function spawnFlame(x,y,z,mob,col,debris){
     mob:mob||null,debris:!!debris,
     ox:mob?x-mob.pos.x:0,oy:mob?y-mob.pos.y:0,oz:mob?z-mob.pos.z:0};
   scene.add(p);particles.push(p);}
-// torch ambience: flame flickers + grey smoke wisps off nearby torch tips, like vanilla
-let torchFxT=0;
+// torch/furnace ambience: flame flickers + grey smoke wisps off torch tips, and
+// lit furnaces puff chimney smoke + mouth sparks with a crackle — like vanilla
+let torchFxT=0,furnCrackT=0;
 function updateTorchFx(dt){
   if((torchFxT-=dt)>0)return;torchFxT=.25;
+  furnCrackT-=.25;
   for(const t of torchSet.values()){
     if(Math.abs(t[0]-player.pos.x)>24||Math.abs(t[2]-player.pos.z)>24)continue;
     if(gB(t[0],t[1],t[2])!==t[3]){torchSet.delete(t[0]+','+t[1]+','+t[2]);continue;} // stale entry
     if(Math.random()>=.3)continue;
     const s=TSUP[t[3]],ox=s?s[0]*.26:0,oz=s?s[1]*.26:0,oy=s?.8:.72; // tip: post top / tilted wall-post top
     spawnFlame(t[0]+.5+ox+(Math.random()-.5)*.08,t[1]+oy,t[2]+.5+oz+(Math.random()-.5)*.08,
-      null,Math.random()<.25?0x555555:0,false);}}
+      null,Math.random()<.25?0x555555:0,false);}
+  for(const k in furnaces){
+    const p=k.split(',').map(Number);
+    if(gB(p[0],p[1],p[2])!==FURNL)continue;
+    if(Math.abs(p[0]-player.pos.x)>24||Math.abs(p[2]-player.pos.z)>24)continue;
+    if(furnCrackT<=0&&Math.abs(p[0]-player.pos.x)<9&&Math.abs(p[2]-player.pos.z)<9){
+      furnCrackT=1.5;play('fire',.3,1);}         // fire crackle while smelting nearby
+    if(Math.random()<.6){
+      const fr=Math.random()<.5?-.06:1.06;       // the mouth is on the ±z faces
+      Math.random()<.4
+        ?spawnFlame(p[0]+.2+Math.random()*.6,p[1]+1.02,p[2]+.2+Math.random()*.6,null,0x555555,false)
+        :spawnFlame(p[0]+.25+Math.random()*.5,p[1]+.15+Math.random()*.35,p[2]+fr,null,0,false);}}}
 const smokeC=new THREE.Color(0x555555);
 function updateParticles(dt){
   for(let i=particles.length-1;i>=0;i--){
@@ -2188,6 +2326,10 @@ const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[
   [LEAF]:'Oak Leaves',[PLANK]:'Oak Planks',[COBBLE]:'Cobblestone',[GLASS]:'Glass',
   [CTABLE]:'Crafting Table',[WOOL]:'White Wool',[BEDF]:'White Bed',[BEDH]:'White Bed',
   [COALORE]:'Coal Ore',[COAL_I]:'Coal',[TORCH]:'Torch',
+  [FURN]:'Furnace',[FURNL]:'Furnace',
+  [FLESH_I]:'Rotten Flesh',[STRING_I]:'String',[EYE_I]:'Spider Eye',
+  [PORK_I]:'Raw Porkchop',[PORKC_I]:'Cooked Porkchop',[CHICK_I]:'Raw Chicken',
+  [CHICKC_I]:'Cooked Chicken',[MUT_I]:'Raw Mutton',[MUTC_I]:'Cooked Mutton',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -2228,20 +2370,49 @@ const ITEM_ART={
   [WAXE_I]:['................','.........ee.....','........egge....','.......egmfe....','......egmmmad...','......hgfmimb...','.......hhamimh..','........adbmmh..','.......acb.hh...','......adb.......','.....adb........','....acb.........','...adb..........','..acb...........','..bb............','................'],
   [WSHOVEL_I]:['................','................','...........eeh..','..........eggmh.','.........egfmgh.','........egfmfgh.','.........amfgh..','........acbgh...','.......acb.h....','......adb.......','.....acb........','....adb.........','..aacb..........','..acb...........','...bb...........','................'],
   [WHOE_I]:['................','.......eee......','......enffe.....','.......hhmfead..','.........hmmnh..','..........afmh..','.........adhh...','........anh.....','.......adh......','......anh.......','.....adh........','....anh.........','...adh..........','..anh...........','..hh............','................']};
+// exact vanilla item textures for the mob-drop/food items (1.21.4 assets,
+// auto-extracted pixel-for-pixel) — each carries its OWN palette so the shared
+// ITEM_PAL letter space doesn't have to stretch across 9 more sprites
+const ITEM_PALS={
+  [FLESH_I]:{0:'#522c10',1:'#28140a',2:'#8b3418',3:'#b44420',4:'#834418',5:'#c56541',6:'#6f4d1b',7:'#622c10',8:'#c5815a',9:'#6a5d18',a:'#c5956a'},
+  [STRING_I]:{0:'#dbdbdb',1:'#f7f7f7',2:'#2f4547'},
+  [EYE_I]:{0:'#7b0d27',1:'#550222',2:'#9d1e2d',3:'#e0c9cc',4:'#2a0010',5:'#e0aeb4',6:'#c45f6b',7:'#65062b'},
+  [PORK_I]:{0:'#a75353',1:'#ef7070',2:'#ff7777',3:'#853e3e',4:'#ff8c8c',5:'#ffadad',6:'#512626',7:'#ffc6c6'},
+  [PORKC_I]:{0:'#8c6932',1:'#997942',2:'#bca474',3:'#dacba4',4:'#5f4f27',5:'#c5ad77',6:'#d3c088',7:'#e2d3ac',8:'#cfba81',9:'#81602b'},
+  [CHICK_I]:{0:'#b47b65',1:'#dfa996',2:'#efbcac',3:'#c19280',4:'#ffe7dc',5:'#865245',6:'#f2c9bd',7:'#deaa83',8:'#eecaac'},
+  [CHICKC_I]:{0:'#8b4420',1:'#cd7d4a',2:'#de9d7b',3:'#d28e62',4:'#ac5d31',5:'#e6bea4',6:'#5a2c10',7:'#deaa83',8:'#eecaac'},
+  [MUT_I]:{0:'#96211b',1:'#ad332e',2:'#e2625a',3:'#bc2922',4:'#d12e26',5:'#e27269',6:'#e88a82',7:'#470a06',8:'#dd3830'},
+  [MUTC_I]:{0:'#522f1f',1:'#6b3a2a',2:'#9d6147',3:'#7c402f',4:'#82483a',5:'#9c6854',6:'#a3705a',7:'#2a160d',8:'#884f40'}};
+Object.assign(ITEM_ART,{
+  [FLESH_I]:['................','..........01....','........0021....','.......034341...','......0256474711','......0832526471','.....0839536971.','....0532432541..','...06323358371..','..0532595a32721.','.0834836824721..','.034832527771...','..0022677111....','...023111.......','....11..........','................'],
+  [STRING_I]:['................','..........0.....','.........121....','.........0.2....','.........210....','....1.....221...','...02.......20..','..12..0101...21.','..0..1222201..0.','..21.20...220.1.','...20122...12.0.','....22010102.12.','......22222.02..','........21012...','.........222....','................'],
+  [EYE_I]:['................','................','................','................','................','......0011......','.....023204.....','.....156274.....','.....122074.....','.....107714.....','......444414....','.........104....','........1274....','........474.....','.........4......','................'],
+  [PORK_I]:['................','................','.........0000...','........011123..','.......01124403.','......054112513.','....00214224523.','...044112224516.','...025211255536.','..011451257513..','..011257575136..','..01227775136...','...305774366....','...3305236......','.....6666.......','................'],
+  [PORKC_I]:['................','................','................','.........0110...','........023214..','.......02567514.','......036683714.','.....0257366814.','....02768673514.','...12537668354..','..123866385114..','..15578685194...','...123751094....','...0111104......','.....4444.......','................'],
+  [CHICK_I]:['................','.....0000.......','....0122100.....','....32133130....','...0213124425...','...02126444615..','...002644466215.','..0223644662215.','..0220630022135.','..021002420115..','..010304423035..','..70301421055...','..850022105.....','....570055......','....8555........','................'],
+  [CHICKC_I]:['................','.....0000.......','....0123100.....','....42144140....','...0314125536...','...03132555216..','...001255522316.','..0324255223316.','..0330240033146.','..031002520116..','..010405524046..','..70401221066...','..860022106.....','....670066......','....8666........','................'],
+  [MUT_I]:['................','...........00...','..........1230..','..........1240..','.........12540..','.........15637..','........168637..','.......1684507..','.....11265850...','....166286220...','...1624442637...','..16844448607...','..1628448240....','..0325665307....','..700000077.....','...777777.......'],
+  [MUTC_I]:['................','...........00...','..........1230..','..........1240..','.........12540..','.........15637..','........168637..','.......1684507..','.....11265850...','....166286220...','...1624442637...','..16844448607...','..1628448240....','..0325665307....','..700000077.....','...777777.......']});
 function itemCanvas(id){                       // shared by the hotbar icons and the 1st-person hand sprite
   const rows=ITEM_ART[id],c=document.createElement('canvas');c.width=c.height=16;
-  const g=c.getContext('2d');
+  const g=c.getContext('2d'),pal=ITEM_PALS[id]||ITEM_PAL;
   rows.forEach((r,y)=>{for(let x=0;x<16;x++)
-    if(r[x]!=='.'){g.fillStyle=ITEM_PAL[r[x]];g.fillRect(x,y,1,1);}});
+    if(r[x]!=='.'){g.fillStyle=pal[r[x]];g.fillRect(x,y,1,1);}});
   return c;}
-const makeItemIcon=id=>itemCanvas(id).toDataURL();
+// item icons ship at 64px (16px art upscaled nearest-neighbour): the inventory
+// panel is transform:scale()d and Chromium bilinear-blurs 16px 'pixelated' imgs
+// inside transformed layers — at 64px source res the icons stay crisp everywhere
+const upIcon=src=>{const c=document.createElement('canvas');c.width=c.height=64;
+  const g=c.getContext('2d');g.imageSmoothingEnabled=false;
+  g.drawImage(src,0,0,64,64);return c.toDataURL();};
+const makeItemIcon=id=>upIcon(itemCanvas(id));
 const ICONS={};
 const iconFor=b=>ICONS[b]||(ICONS[b]=ITEM_ART[b]?makeItemIcon(b):makeBlockIcon(b));
 let torchOutIcon=null;             // crafting-RESULT slot only: the torch drawn 3px higher so it
 const outIconFor=b=>{              // sits centered; every other slot keeps the vanilla ground-anchored icon
   if(b!==TORCH)return iconFor(b);
   if(!torchOutIcon){const c=document.createElement('canvas');c.width=c.height=16;
-    c.getContext('2d').drawImage(itemCanvas(TORCH),0,-3);torchOutIcon=c.toDataURL();}
+    c.getContext('2d').drawImage(itemCanvas(TORCH),0,-3);torchOutIcon=upIcon(c);}
   return torchOutIcon;};
 let sel=0;
 function drawHotbar(){
@@ -2304,13 +2475,42 @@ function mkSlot(list,idx,ghost){
  const tg=document.getElementById('tableGrid');
  for(let i=0;i<9;i++)tg.appendChild(mkSlot('tbl',i));
  document.getElementById('tableOutWrap').appendChild(mkSlot('out',1));
+ document.getElementById('furnInWrap').appendChild(mkSlot('fin',0));
+ document.getElementById('furnFuelWrap').appendChild(mkSlot('ffu',0));
+ document.getElementById('furnOutWrap').appendChild(mkSlot('fout',0));
  const ig=document.getElementById('invGrid');
  for(let i=0;i<27;i++)ig.appendChild(mkSlot('inv',i));
  const hr=document.getElementById('invHotRow');
  for(let i=0;i<9;i++)hr.appendChild(mkSlot('hot',i));}
+// exact vanilla furnace gauges (textures/gui/sprites/container/furnace/, extracted
+// pixel-for-pixel): lit_progress 14x14 flame + burn_progress 24x16 arrow. Each is
+// rendered twice — a dark silhouette for the empty state (like the unlit outlines
+// baked into vanilla's furnace.png background) and the lit/filled copy on top,
+// which updateFurnGUI reveals with clip-path: the flame burns DOWN as the fuel
+// depletes and the arrow fills LEFT->RIGHT as the item cooks, just like vanilla
+{const FLAME=['.1.........1..','.21...1...123.','..2...2...2.3.','.143..41..41..','.243...2..42..',
+   '.453..123.543.','1423..423.241.','2513.1543.1423','453..2413..543','552..2533.2543',
+   '1543.453..4513','.553.454..553.','2523.2553.252.','.333..333..333'],
+ ARROW=['...............1........','...............11.......','...............111......','...............1111.....',
+   '...............11111....','...............111111...','.111111111111111111111..','.1111111111111111111111.',
+   '.1111111111111111111112.','.222222222222221111112..','...............111112...','...............11112....',
+   '...............1112.....','...............112......','...............12.......','...............2........'],
+ spr=(rows,pal)=>{const w=rows[0].length,c=document.createElement('canvas');
+   c.width=w*4;c.height=rows.length*4;const g=c.getContext('2d');
+   rows.forEach((r,y)=>{for(let x=0;x<w;x++)if(pal[r[x]]){g.fillStyle=pal[r[x]];g.fillRect(x*4,y*4,4,4);}});
+   return c.toDataURL();},
+ FCOL={1:'#d84c45',2:'#ffb600',3:'#8b8b8b',4:'#ffff1f',5:'#ffffff'},   // vanilla flame palette
+ sil=o=>Object.fromEntries(Object.keys(o).map(k=>[k,'#4b5158']));      // unlit silhouette tone
+ document.getElementById('flameBg').src=spr(FLAME,sil(FCOL));
+ document.getElementById('flameFg').src=spr(FLAME,FCOL);
+ document.getElementById('arrowBg').src=spr(ARROW,{1:'#4b5158',2:'#272b30'});
+ document.getElementById('arrowFg').src=spr(ARROW,{1:'#ffffff',2:'#686868'});}
 invEl.addEventListener('contextmenu',e=>e.preventDefault());
-const getSlot=(l,i)=>l==='inv'?invSlots[i]:l==='hot'?hotbar[i]:l==='craft'?craftSlots[i]:l==='tbl'?tableSlots[i]:l==='out'?craftOut:null;
-const setSlot=(l,i,v)=>{if(l==='inv')invSlots[i]=v;else if(l==='hot')hotbar[i]=v;else if(l==='craft')craftSlots[i]=v;else if(l==='tbl')tableSlots[i]=v;};
+const oFurn=()=>(openFurnKey&&furnaces[openFurnKey])||{i:null,f:null,o:null}; // GUI's furnace (dummy if none open)
+const getSlot=(l,i)=>l==='inv'?invSlots[i]:l==='hot'?hotbar[i]:l==='craft'?craftSlots[i]:l==='tbl'?tableSlots[i]:l==='out'?craftOut
+  :l==='fin'?oFurn().i:l==='ffu'?oFurn().f:l==='fout'?oFurn().o:null;
+const setSlot=(l,i,v)=>{if(l==='inv')invSlots[i]=v;else if(l==='hot')hotbar[i]=v;else if(l==='craft')craftSlots[i]=v;else if(l==='tbl')tableSlots[i]=v;
+  else if(l==='fin')oFurn().i=v;else if(l==='ffu')oFurn().f=v;else if(l==='fout')oFurn().o=v;};
 const stack=(b,count)=>({b,count});
 // merge a stack into containers (top up matching stacks first, then empty slots);
 // mutates it.count down and returns true once fully absorbed
@@ -2328,10 +2528,11 @@ const addStack=it=>mergeInto([hotbar,invSlots],it);
 // bounding box of the grid equals the pattern (or its horizontal mirror, like
 // vanilla). 3-wide/3-tall patterns can only ever fit the crafting table's 3x3
 // grid, so tools genuinely require a crafting table - just like the real game.
-const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL,C:COAL_I};
+const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL,C:COAL_I,O:COBBLE};
 const RECIPES=[
   [['L'],PLANK,4],                  // 1 log -> 4 planks
   [['C','S'],TORCH,4],              // vanilla torch: coal over a stick -> 4 torches
+  [['OOO','O.O','OOO'],FURN,1],     // vanilla furnace: ring of 8 cobblestone (crafting table)
   [['WWW','PPP'],BEDF,1],           // vanilla bed: 3 wool over 3 planks (needs the crafting table)
   [['P','P'],STICK_I,4],            // 2 planks stacked -> 4 sticks
   [['PP','PP'],CTABLE,1],           // 2x2 planks -> crafting table
@@ -2356,7 +2557,7 @@ function matchCraft(slots,w){       // w = grid width (2 or 3), slots is w*w lon
       if(ok)return stack(b,n);}}
   return null;}
 function updateCraft(){
-  craftOut=invMode==='table'?matchCraft(tableSlots,3):matchCraft(craftSlots,2);}
+  craftOut=invMode==='table'?matchCraft(tableSlots,3):invMode==='furnace'?null:matchCraft(craftSlots,2);}
 function slotClick(list,idx,e){
   if(list==='armor'||list==='off')return;          // cosmetic slots: no armor items yet
   if(list==='out'){                                // take the crafting result
@@ -2378,6 +2579,12 @@ function slotClick(list,idx,e){
     else return;
     grid.forEach((s,i)=>{if(s&&--s.count<=0)grid[i]=null;}); // consume ingredients
     updateCraft();play('uiClick',.3);drawHotbar();return;}
+  if(list==='fout'&&heldStack){                    // furnace output: take-only, like vanilla
+    const it=getSlot(list,idx);
+    if(it&&it.b===heldStack.b&&heldStack.count+it.count<=stackMax(it.b)){
+      heldStack.count+=it.count;setSlot(list,idx,null);
+      play('uiClick',.3);drawHotbar();}
+    return;}
   const it=getSlot(list,idx);
   if(e.button===2){                                // right click: place one / take half
     if(heldStack){
@@ -2406,6 +2613,11 @@ function slotClick(list,idx,e){
 function slotHTML(it,out){          // out: the crafting result slot (centered torch + lifted count)
   return it?'<img src="'+(out?outIconFor(it.b):iconFor(it.b))+'">'+
     (it.count>1?'<span class="cnt'+(out&&it.b===TORCH?' tcnt':'')+'">'+it.count+'</span>':''):'';}
+function updateFurnGUI(){                          // live flame + arrow gauges while the GUI is up
+  if(!invOpen||invMode!=='furnace')return;
+  const s=furnaces[openFurnKey];if(!s)return;
+  document.getElementById('flameFg').style.clipPath='inset('+(s.burnMax>0?100-Math.max(0,s.burn)/s.burnMax*100:100)+'% 0 0 0)';
+  document.getElementById('arrowFg').style.clipPath='inset(0 '+(100-Math.min(1,s.cook/10)*100)+'% 0 0)';}
 function refreshInv(){
   invEl.querySelectorAll('.islot').forEach(d=>{
     const l=d.dataset.list;if(l==='armor'||l==='off')return;
@@ -2446,9 +2658,10 @@ addEventListener('mousedown',e=>{
 addEventListener('contextmenu',e=>{if(vcOn&&invOpen)e.preventDefault();}); // right-click = place-one, not a browser menu
 function openInv(mode){
   if(invOpen)return;
-  invOpen=true;invMode=mode==='table'?'table':'inv';
+  invOpen=true;invMode=mode==='table'?'table':mode==='furnace'?'furnace':'inv';
   document.getElementById('invTop').style.display=invMode==='inv'?'flex':'none';
   document.getElementById('tableTop').style.display=invMode==='table'?'block':'none';
+  document.getElementById('furnTop').style.display=invMode==='furnace'?'block':'none';
   if(document.pointerLockElement){                 // normal in-game open: KEEP the pointer lock and
     vcOn=true;                                     // switch to the virtual cursor, so the browser's
     moveVC(innerWidth/2,innerHeight/2);            // exit-fullscreen overlay can never be triggered;
@@ -2565,8 +2778,9 @@ const HOLD_TOOL={x:.66,y:-.36,z:-.74,rx:0,ry:-.3,rz:.5}; // vanilla handheld.jso
                                                          // corner perspective add — the head tip lands at ~100°,
                                                          // just left of vertical, like the real game
 const isHafted=b=>b===WAXE_I||b===WPICK_I||b===WSHOVEL_I||b===WHOE_I;
-const upright=b=>isHafted(b)||b===TORCH; // upright items share the tool pose — vanilla's torch item
-                                         // uses item/generated's identical [0,-90,25] transform
+const upright=b=>isHafted(b)||b===TORCH||(b>=FLESH_I&&b<=MUTC_I); // upright items share the tool pose —
+                                         // vanilla's torch/food items (item/generated) use the
+                                         // identical [0,-90,25] first-person transform
 const holdCache={};
 function heldMesh(b){
   if(holdCache[b])return holdCache[b];
@@ -2662,7 +2876,17 @@ function updateFPArm(dt){
     fpHold.rotation.set(                               // (Y/Z signs flipped for this scene's mirrored pose stack)
       holdBase.rx-f1S*1.396,                           // the -80° overhead chop — the heart of the vanilla swing
       holdBase.ry+fS*.35-swayX*1.5,                    // ±20° yaw sweep, eased by sin(p²·π) like vanilla
-      holdBase.rz+f1S*.35+swayX);}                     // ±20° roll, eased by sin(√p·π) like vanilla
+      holdBase.rz+f1S*.35+swayX);
+    if(eating&&eatT>0){                                // vanilla applyEatTransform (ItemInHandRenderer):
+      const p=Math.min(1,eatT/1.61),f3=1-Math.pow(1-p,27); // f3 = 1-f1^EAT_JIGGLE_EXPONENT(27) rush, then
+      const rem=(1.61-eatT)*20;                        // translate(0.6·i,-0.5) + rotY 90° rotX 10° rotZ 30°:
+      const bob=p>.2?Math.abs(Math.cos(rem/4*Math.PI))*.07:0; // the food dives DOWN to the chin, and the
+                                                       // |cos(f/4·π)|·0.1 nibble-bob starts once f1<0.8
+      fpHold.position.x-=f3*.31;                       // our pivot is the sprite CENTRE (no model-origin
+      fpHold.position.y+=bob-f3*.12;                   // lever arm), so the offsets are scaled to land the
+      fpHold.rotation.x+=f3*.175;                      // same net pose: peeking above the bottom edge at
+      fpHold.rotation.y+=f3*1.15;                      // the mouth, strongly yawed away + 30° rolled,
+      fpHold.rotation.z+=f3*.52;}}                     // bobbing with each bite                     // ±20° roll, eased by sin(√p·π) like vanilla
 }
 const pvCam=new THREE.PerspectiveCamera(38,128/192,.1,10);  // wide enough that hair/feet never crop
 pvCam.position.set(0,1.0,3.6);pvCam.lookAt(0,.95,0);
@@ -2820,7 +3044,7 @@ function snapshotWorld(){
     yaw:player.yaw,pitch:player.pitch,view:player.view,
     hp:player.hp,food:player.food,sel,
     hotbar:packInv(hotbar),inv:packInv(invSlots),
-    dayFrac,edits:worldEdits};
+    dayFrac,edits:worldEdits,furn:furnaces}; // furnace contents/progress ride along with the save
   curWorld.lastPlayed=Date.now();
   saveWorlds();}
 addEventListener('beforeunload',snapshotWorld);   // closing the tab saves too
@@ -2838,6 +3062,8 @@ function playWorld(w){
     // the edit diff must be in place BEFORE resetWorld: findSpawn() already decorates
     // the spawn-area chunks, and their saved edits have to replay during that pass
     worldEdits=(w.save&&w.save.edits)||{};
+    for(const k in furnaces)delete furnaces[k];      // restore this world's furnaces
+    Object.assign(furnaces,(w.save&&w.save.furn)||{});
     resetWorld(w.seed);
     resetInv();
     if(w.save){                                 // resume exactly where the last session ended
@@ -2914,7 +3140,8 @@ function tick(){
   if(inGame){                                  // menus pause the world entirely
     updateChunks();
     updateSky(dt);updatePlayer(dt);updateMobs(dt);
-    updateMining(dt);
+    updateMining(dt);updateEating(dt);
+    updateFurnaces(dt);updateFurnGUI();
     updateParticles(dt);updateTorchFx(dt);
     updateHighlight();
     if(sleepT>=0){                             // sleeping: fade to black, wake at sunrise, fade back
