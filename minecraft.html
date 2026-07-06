@@ -357,7 +357,7 @@ const SFX={
               setTimeout(()=>noiseSnd({dur:.07,vol:.3,f0:500,f1:200}),70);}}; // thud
 
 // ================= TEXTURE ATLAS =================
-const TS=16,AT=5; // 5x5 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed tops, 19 coal ore, 20 torch, 21-24 furnace top/side/front/front-lit)
+const TS=16,AT=6; // 6x6 tile grid (tiles 0-15 blocks, 16 wool, 17/18 bed tops, 19 coal ore, 20 torch, 21-24 furnace top/side/front/front-lit, 25/26 farmland dry/moist)
 const atlasC=document.createElement('canvas');atlasC.width=atlasC.height=TS*AT;
 const actx=atlasC.getContext('2d');
 const rnd=a=>a[(Math.random()*a.length)|0];
@@ -441,6 +441,12 @@ fillTilePxN(23,['#504e4e','#3c3b3b','#686868','#777777','#5d5b5b','#919191','#85
   '000010001110110002233232332323401435362365653230026617777771632003618888888813411328887777888541032881111118854013599aaaaaa9953113632432423232200babbbbbbbbbbb900999a966669a9ac10c954788887459c005508888888803c00358887777888c5015387777777783c11211100000011121');
 fillTilePxN(24,['#504e4e','#3c3b3b','#686868','#777777','#5d5b5b','#919191','#858585','#212121','#111111','#a8a8a8','#b0b0b0','#c5c5c5','#9d9d9d','#ff8f00','#c35d1b','#ffd800','#ffff97','#ffffff'],
   '000010001110110002233232332323401435362365653230026617777771632003618888888813411328887777888541032881111118854013599aaaaaa9953113632432423232200babbbbbbbbbbb900999a966669a9ac10c954788887d59c00550d8eddeff03c00358ffdgffgd8c50153efgfhfhgfe3c1121ddhghdgfdf121');
+// vanilla farmland.png / farmland_moist.png (exact pixels, 1.21.4 assets):
+// tilled tops with furrows — 25 = dry brown, 26 = dark water-soaked
+fillTilePxN(25,['#966c4a','#79553a','#593d29','#b9855c','#555555','#6f6f6f'],
+  '0012110000121033300201030001200303021000330120303312110330011133301421103301210300212100031211333001201050120103300120030102103133021000311210330302110330121033301121303011200300410133330121033012103330012400330210030302110003012030330210300311210030121330');
+fillTilePxN(26,['#552e0f','#3f210a','#341907','#6e3c15','#555555','#6f6f6f'],
+  '0012110000121033300201030001200303021000330120303312110330011133301421103301210300212100031211333310201050120103300120030102103133021000311210330302110330121033301121303011200300410133330121033012103330012400330210030302110003012030330210300311210030121330');
 const atlasTex=new THREE.CanvasTexture(atlasC);
 atlasTex.magFilter=atlasTex.minFilter=THREE.NearestFilter;
 const solidMat=new THREE.MeshLambertMaterial({map:atlasTex,vertexColors:true,alphaTest:.3});
@@ -511,6 +517,9 @@ const isTorch=b=>b===TORCH||(b>=TORCHE&&b<=TORCHN);
 const FURN=32,FURNL=33;
 // mob-drop / food items (all values from minecraft.wiki):
 const FLESH_I=34,STRING_I=35,EYE_I=36,PORK_I=37,PORKC_I=38,CHICK_I=39,CHICKC_I=40,MUT_I=41,MUTC_I=42;
+// farmland (hoe-tilled soil): never an inventory item — it exists only in the
+// world, drops dirt, and reverts to dirt when trampled/covered/left dry
+const FARM=43,FARMW=44;                          // dry / water-soaked (moist)
 const FOOD_PTS={[FLESH_I]:4,[EYE_I]:2,[PORK_I]:3,[PORKC_I]:8,[CHICK_I]:2,[CHICKC_I]:6,[MUT_I]:2,[MUTC_I]:6}; // hunger points, vanilla-exact
 const isFood=b=>FOOD_PTS[b]!==undefined;
 const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I};    // furnace recipes: raw -> cooked
@@ -522,7 +531,7 @@ const isBed=b=>b===BEDF||b===BEDH;
 let SEED=(Math.random()*1e9)|0;
 const isSolid=b=>b!==AIR&&b!==WATERB&&b!==DOOROL&&b!==DOOROU&&!isTorch(b); // open doors + torches are passable (torches have no collision box, like vanilla)
 const solidAt=(x,y,z)=>y<0?true:isSolid(gB(x,y,z));
-const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b)||isBed(b)||isTorch(b); // beds are a low slab: neighbours must render behind them
+const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b)||isBed(b)||isTorch(b)||b===FARM||b===FARMW; // beds/farmland are shortened: neighbours must render behind them
 function hash2(x,z){
   let n=(x*374761393+z*668265263+SEED*97531)|0;
   n=Math.imul(n^(n>>>13),1274126177);
@@ -732,12 +741,15 @@ function tileFor(b,f){switch(b){
   case COBBLE:return 10;case GLASS:return 11;case COALORE:return 19;
   case CTABLE:return f===3?9:f===2?8:f<2?14:15;
   case FURN:return(f===2||f===3)?21:f<2?22:23;   // stone top+bottom, riveted sides, mouth front
-  case FURNL:return(f===2||f===3)?21:f<2?22:24;} // lit: the mouth glows (vanilla furnace_front_on)
+  case FURNL:return(f===2||f===3)?21:f<2?22:24;  // lit: the mouth glows (vanilla furnace_front_on)
+  case FARM:return f===3?25:2;                   // tilled top, dirt sides/bottom, like vanilla
+  case FARMW:return f===3?26:2;}                 // moist: water-soaked furrows
   return 3;}
 // ---- torch light: vanilla block light, level 14 at the torch, -1 per block,
 // flood-filled through transparent cells. Recomputed per chunk mesh from every
 // torch in the 3x3 chunk neighbourhood (radius 14 can't reach further in).
 const torchSet=new Map();                    // "x,y,z" -> [x,y,z,id]: every torch seen in meshed chunks
+const farmSet=new Map();                     // "x,y,z" -> seconds spent fully dry (farmland hydration ticks)
 function bfsLight(L,x,y,z,lv0){
   const q=[x,y,z,lv0||14];
   for(let qi=0;qi<q.length;qi+=4){
@@ -752,10 +764,13 @@ function chunkTorchLight(c){
   let L=null;
   for(let ncx=c.cx-1;ncx<=c.cx+1;ncx++)for(let ncz=c.cz-1;ncz<=c.cz+1;ncz++){
     const d=getChunk(ncx,ncz).data;
-    for(let i=0;i<d.length;i++)if(isTorch(d[i])||d[i]===FURNL){
+    for(let i=0;i<d.length;i++){const bi=d[i];
+      if(!isTorch(bi)&&bi!==FURNL&&bi!==FARM&&bi!==FARMW)continue;
       const y=i>>8,x=ncx*CH+(i&15),z=ncz*CH+((i>>4)&15);
-      if(isTorch(d[i]))torchSet.set(x+','+y+','+z,[x,y,z,d[i]]);
-      bfsLight(L||(L=new Map()),x,y,z,d[i]===FURNL?13:14);}} // lit furnace glows at 13, like vanilla
+      if(bi===FARM||bi===FARMW){                // farmland registry: hydration ticks find it after a reload
+        if(!farmSet.has(x+','+y+','+z))farmSet.set(x+','+y+','+z,0);continue;}
+      if(isTorch(bi))torchSet.set(x+','+y+','+z,[x,y,z,bi]);
+      bfsLight(L||(L=new Map()),x,y,z,bi===FURNL?13:14);}} // lit furnace glows at 13, like vanilla
   return L;}
 // ---- torch geometry: the exact vanilla models (template_torch/_wall.json) ----
 // floor: a 2x10x2px post [7,0,7]->[9,10,9]. wall: the same box with its base at
@@ -765,7 +780,7 @@ function chunkTorchLight(c){
 // the wood patch px[7,13..9,15]. Quads are emitted double-sided so the tilted
 // box never back-culls; shade:false like vanilla — full-bright vertex colour
 // with tl=14/15 so the flame never darkens at night.
-const tU=px=>(0+px)/(AT*TS),tV=px=>1-(4*TS+px)/(AT*TS);  // tile 20 = atlas col 0, row 4
+const tU=px=>((20%AT)*TS+px)/(AT*TS),tV=px=>1-(((20/AT)|0)*TS+px)/(AT*TS); // torch tile 20's atlas cell
 function torchQuad(P,N,U,CL,TL,I,q,n,u0,v0,u1,v1){       // q=[bl,br,tl,tr] world coords
   for(const[qs,ns,us]of[[q,n,[[u0,v0],[u1,v0],[u0,v1],[u1,v1]]],
       [[q[1],q[0],q[3],q[2]],[-n[0],-n[1],-n[2]],[[u1,v0],[u0,v0],[u1,v1],[u0,v1]]]]){
@@ -818,11 +833,12 @@ function buildChunkMesh(c){
           N.push(...fc.n);
           U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);TL.push(lt);}
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
-      }else if(isBed(b)){                        // bed: 9/16-high slab, blanket top, plank frame sides
-        if(f!==3&&!(transp(nb)&&nb!==b)&&!isBed(nb))continue; // top face always shows (block above can't cover a slab)
+      }else if(isBed(b)||b===FARM||b===FARMW){   // shortened blocks: bed = 9/16 slab, farmland = 15/16 (vanilla)
+        const hgt=isBed(b)?.5625:.9375;
+        if(f!==3&&!(transp(nb)&&nb!==b)&&!isBed(nb))continue; // top face always shows (block above can't cover it)
         const t=tileFor(b,f),col=t%AT,row=(t/AT)|0,n0=P.length/3,sh=SHADE[f];
         for(const co of fc.c){
-          P.push(wx+co[0],y+co[1]*.5625,wz+co[2]);N.push(...fc.n);
+          P.push(wx+co[0],y+co[1]*hgt,wz+co[2]);N.push(...fc.n);
           U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);TL.push(lt);}
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
       }else{
@@ -878,7 +894,10 @@ function setBlock(x,y,z,v){
   if(v===AIR){                                  // support gone: attached torches pop off, like vanilla
     if(gB(x,y+1,z)===TORCH)popTorch(x,y+1,z);
     for(const id in TSUP){const s=TSUP[id];
-      if(gB(x-s[0],y,z-s[1])===+id)popTorch(x-s[0],y,z-s[1]);}}}
+      if(gB(x-s[0],y,z-s[1])===+id)popTorch(x-s[0],y,z-s[1]);}}
+  else if(!transp(v)){                          // covering farmland with a solid block stomps it to dirt
+    const bl=gB(x,y-1,z);
+    if(bl===FARM||bl===FARMW)setBlock(x,y-1,z,DIRT);}}
 function popTorch(x,y,z){                       // a torch losing its support drops as an item
   setBlock(x,y,z,AIR);addDrop(TORCH);
   play('digWood',.5,.9);
@@ -959,6 +978,29 @@ function spillFurnace(x,y,z){                    // mining a furnace hands its c
   for(const st of[s.i,s.f,s.o])if(st)addStack(st);
   if(openFurnKey===fkey(x,y,z))openFurnKey=null;
   delete furnaces[fkey(x,y,z)];drawHotbar();}
+// ---- farmland hydration, vanilla rules: water within 4 blocks horizontally (same
+// level or one above) keeps it MOIST (dark soaked furrows); dry farmland with
+// nothing planted slowly reverts to dirt; trampling and covering also revert it
+const farmWet=(x,y,z)=>{
+  for(let dy=0;dy<=1;dy++)for(let dx=-4;dx<=4;dx++)for(let dz=-4;dz<=4;dz++)
+    if(gB(x+dx,y+dy,z+dz)===WATERB)return true;
+  return false;};
+let farmT=0;
+function updateFarms(dt){
+  if((farmT-=dt)>0)return;farmT=2;              // ~random-tick cadence
+  let ch=false;
+  for(const[k,dry]of farmSet){
+    const[x,y,z]=k.split(',').map(Number);
+    const b=gB(x,y,z);
+    if(b!==FARM&&b!==FARMW){farmSet.delete(k);continue;}
+    const wet=farmWet(x,y,z);
+    if(wet){farmSet.set(k,0);
+      if(b!==FARMW){setBlock(x,y,z,FARMW);ch=true;}}
+    else{
+      if(b!==FARM){setBlock(x,y,z,FARM);ch=true;}
+      const d2=dry+2;farmSet.set(k,d2);
+      if(d2>=60){setBlock(x,y,z,DIRT);farmSet.delete(k);ch=true;}}} // ~1min dry with no crop -> dirt
+  if(ch)flush();}
 // ---- sleeping: right-click a bed at night skips to sunrise, like vanilla ----
 let sleepT=-1;                                  // >=0: fade-out progress of the sleep transition
 function trySleep(){
@@ -1253,6 +1295,7 @@ function resetWorld(newSeed){                     // wipe everything, regen from
   chunkMap.clear();
   torchSet.clear();                              // stale torch cells would leak light + particles
   for(const k in furnaces)delete furnaces[k];openFurnKey=null;
+  farmSet.clear();
   villagerSpawns.length=0;
   for(const m of mobs)m.remove();
   mobs.length=0;
@@ -1327,6 +1370,14 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(r&&r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
     if(r&&r.hit&&(gB(...r.hit)===FURN||gB(...r.hit)===FURNL)){    // use the furnace: smelting GUI
       openFurnKey=fkey(...r.hit);furnaceAt(...r.hit);openInv('furnace');return;}
+    if(r&&r.hit&&hotbar[sel]&&hotbar[sel].b===WHOE_I){ // hoe use: till grass/dirt into farmland, like vanilla —
+      const[hx,hy,hz]=r.hit,tb=gB(hx,hy,hz);           // any face but the underside, and only with air above
+      if((tb===GRASS||tb===DIRT)&&(!r.prev||r.prev[1]-hy!==-1)&&gB(hx,hy+1,hz)===AIR){
+        setBlock(hx,hy,hz,FARM);flush();
+        farmSet.set(hx+','+hy+','+hz,0);
+        player.swingT=SWING_DUR;
+        play('digGravel',.9,.8);                       // vanilla item.hoe.till = the gravel dig family
+        return;}}
     const eit=hotbar[sel];                       // food in hand + room in the belly: hold to eat, like vanilla
     if(eit&&isFood(eit.b)&&eit.count>0&&(Math.round(player.food)<20||isCreative())){eating=true;eatT=0;return;}
                                                  // rounded like the HUD: a bar that LOOKS full refuses food
@@ -1520,7 +1571,14 @@ function updatePlayer(dt){
     if(keys.Space&&!ui&&player.onGround)player.vel.y=8;}
   player.pos.y+=player.vel.y*dt;player.onGround=false;
   if(collidesP()){
-    if(player.vel.y<0)player.onGround=true;
+    if(player.vel.y<0){player.onGround=true;
+      if(player.vel.y<-5.2&&!player.crouching){    // landed harder than a half-block fall: trample
+        const gy=Math.floor(player.pos.y-.1);      // farmland underfoot back to dirt, like vanilla
+        let tr=false;                              // (sneaking prevents it, also like vanilla)
+        for(const dx of[-.3,.3])for(const dz of[-.3,.3]){
+          const bx=Math.floor(player.pos.x+dx),bz=Math.floor(player.pos.z+dz),bb=gB(bx,gy,bz);
+          if(bb===FARM||bb===FARMW){setBlock(bx,gy,bz,DIRT);tr=true;}}
+        if(tr){flush();play('digGravel',.5,.9);}}}
     player.pos.y-=player.vel.y*dt;player.vel.y=0;}
   // entry splash only on a genuine fall-in, volume scaled by impact speed like vanilla,
   // with a cooldown so porpoise-bouncing splashes naturally but can never machine-gun
@@ -2110,9 +2168,9 @@ function hardFor(b){
     const hd=b===STONE?1.5:b===COALORE?3:b===COBBLE?2:3.5; // furnace hardness 3.5, like vanilla
     return tb===WPICK_I?hd*1.5/2:hd*5;}
   let t=isTorch(b)?.05:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
-    :b===LEAF?.3:b===GLASS?.5:b===GRASS?.9:(b===WOOL||isBed(b))?.8:.75;
+    :b===LEAF?.3:b===GLASS?.5:(b===GRASS||b===FARM||b===FARMW)?.9:(b===WOOL||isBed(b))?.8:.75;
   if(tb===WAXE_I&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=4;
-  else if(tb===WSHOVEL_I&&(b===DIRT||b===GRASS||b===SAND))t/=4;
+  else if(tb===WSHOVEL_I&&(b===DIRT||b===GRASS||b===SAND||b===FARM||b===FARMW))t/=4;
   else if(tb===WHOE_I&&b===LEAF)t=.1;
   return t;}
 // what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters,
@@ -2123,7 +2181,7 @@ function dropFor(b){
     const it=hotbar[sel];                      // the block shatters and drops NOTHING, like vanilla
     if(!it||it.b!==WPICK_I)return 0;
     return b===STONE?COBBLE:b===COALORE?COAL_I:b===FURNL?FURN:b;}
-  return b===GRASS?DIRT:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
+  return(b===GRASS||b===FARM||b===FARMW)?DIRT:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
   if(b===WOOL||isBed(b))return{hit:'stepCloth',dig:'stepCloth',col:0xededed}; // cloth family, like vanilla wool
@@ -2131,7 +2189,7 @@ function matFor(b){
   if(b===STONE||b===COBBLE||b===FURN||b===FURNL)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
   if(b===COALORE)return{hit:'stepStone',dig:'digStone',col:0x4a4a48}; // stone voice, sooty debris
   if(b===LOG||b===PLANK||b===CTABLE||isDoor(b)||isTorch(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40}; // torch = wood family, like vanilla
-  if(b===DIRT)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
+  if(b===DIRT||b===FARM||b===FARMW)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
   if(b===GLASS)return{hit:'stepStone',dig:'glassBreak',col:0xd6eef5};
   if(b===LEAF)return{hit:'stepGrass',dig:'digGrass',col:0x2e6b22};
   return{hit:'stepGrass',dig:'digGrass',col:0x4f9442};}
@@ -2332,6 +2390,7 @@ const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[
   [FLESH_I]:'Rotten Flesh',[STRING_I]:'String',[EYE_I]:'Spider Eye',
   [PORK_I]:'Raw Porkchop',[PORKC_I]:'Cooked Porkchop',[CHICK_I]:'Raw Chicken',
   [CHICKC_I]:'Cooked Chicken',[MUT_I]:'Raw Mutton',[MUTC_I]:'Cooked Mutton',
+  [FARM]:'Farmland',[FARMW]:'Farmland',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -3153,7 +3212,7 @@ function tick(){
     updateChunks();
     updateSky(dt);updatePlayer(dt);updateMobs(dt);
     updateMining(dt);updateEating(dt);
-    updateFurnaces(dt);updateFurnGUI();
+    updateFurnaces(dt);updateFurnGUI();updateFarms(dt);
     updateParticles(dt);updateTorchFx(dt);
     updateHighlight();
     if(sleepT>=0){                             // sleeping: fade to black, wake at sunrise, fade back
