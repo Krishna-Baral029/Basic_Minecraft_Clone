@@ -381,20 +381,8 @@ fillTile(6,(x,y)=>{const d=Math.max(Math.abs(x-7.5),Math.abs(y-7.5));
   return(d|0)%3<2?'#9a7748':'#6b5230';});
 fillTile(7,()=>rnd(['#2e6b22','#39822c','#256018','#317527','#2a6620']));
 fillTile(8,(x,y)=>(y%4===3)?'#7d5f36':rnd(['#a8824e','#b58d57','#9f7a47']));
-// crafting table (tiles 9 top / 14 side / 15 front): plank top with a dark
-// work-grid, sides with the recessed dark tool panels, like the vanilla block
-fillTile(9,(x,y)=>{
-  if(x===0||y===0||x===15||y===15)return rnd(['#6b5230','#5a4426']);
-  if(x===5||x===10||y===5||y===10)return rnd(['#7d5f36','#6b5230']);
-  return rnd(['#b58d57','#a8824e','#bb9259']);});
-fillTile(14,(x,y)=>{
-  if(y<2)return rnd(['#b58d57','#a8824e']);
-  if(y>=5&&y<=10&&x>=4&&x<=11)return rnd(['#3a2a18','#2e2014','#241a0e']);
-  return(y%4===3)?'#7d5f36':rnd(['#9a7748','#8a6a40','#93714a']);});
-fillTile(15,(x,y)=>{
-  if(y<2)return rnd(['#b58d57','#a8824e']);
-  if(y>=5&&y<=10&&((x>=3&&x<=6)||(x>=9&&x<=12)))return rnd(['#3a2a18','#2e2014','#241a0e']);
-  return(y%4===3)?'#7d5f36':rnd(['#9a7748','#8a6a40','#93714a']);});
+// crafting table (tiles 9 top / 14 side / 15 front): filled further down with
+// the EXACT vanilla crafting_table_*.png pixels (fillTilePxN is defined there)
 // vanilla coal_ore.png (exact pixels, 1.21.4 assets — stone base + coal blobs)
 fillTilePx(19,['#8f8f8f','#7f7f7f','#747474','#686868','#5c5c5c','#252525','#393c36','#363636','#2e2e2e','#494b3f'],
   '0000122123221111112121444113341212332456742187111422186798511222257222485542221110012100022443202012422212686411242456841146910002156978121222121024874220011441310244121222456311442411214422221459755004965233024654222475422112221178114111001122210210011211');
@@ -450,6 +438,14 @@ fillTilePxN(26,['#552e0f','#3f210a','#341907','#6e3c15','#555555','#6f6f6f'],
 // vanilla iron_ore.png (exact pixels, 1.21.4 assets): stone base + rusty peach blobs
 fillTilePxN(27,['#8f8f8f','#7f7f7f','#747474','#686868','#77674f','#887455','#af8e77','#d8af93','#e2c0aa'],
   '0111122123222200112331100145541212565213221561111567012333211222200023355665332110115677876125602110006770121001221332000123311100356332145642121046677010670001310078032100122211110010111450101232560245677652056210120678600110542111100001111100112211001211');
+// vanilla crafting_table_top/_side/_front.png (exact pixels, 1.21.4 assets):
+// the work-grid top, the saw+plank side and the hammer+pliers front
+fillTilePxN(9,['#19140c','#0e0b06','#41230e','#733920','#1a150d','#bc9862','#9e5932','#ae693c','#553824','#4b2b18'],
+  '0110233333324140155267777776255115277777777772510278988899998720267867877977876237787796786787733778898898898773377877877877877337787787787787733779998998898773377967976977877326786797796787624278898888888724152777777777725145526777777625540414233333320110');
+fillTilePxN(14,['#19140c','#af8f55','#b8945f','#c29d62','#382116','#733920','#4b2b18','#967441','#9f844d','#262012','#7e6237','#67502c','#1b160d','#41230e','#281e0b','#d8d8d8','#b5b5b5','#110e08'],
+  '0123345665433320021178466411228002221219988112200aa77abccababba00383333663321180022d8d8441122220081e1e14422118800baafabccbaaa7a0033f1f3663333320012g2g144818188002118884411188200ba77abhha7aabb0082332266338323001228814422121100881218442188880caabba70cababbbc');
+fillTilePxN(15,['#19140c','#af8f55','#b8945f','#c29d62','#382116','#733920','#4b2b18','#967441','#9f844d','#7e6237','#67502c','#1b160d','#41230e','#281e0b','#b5b5b5','#ffffff','#d8d8d8','#110e08'],
+  '012334566543332002117846641122800222121448811220099779abb9accc9003833336633d1d80022c8184411ddd20081d1114422eee800a9d79abba9fgg90033d1136633fgg2001ggg2144818gg8002egf8844111fg200a9779ahh9799ga00823322663383f3001228814422121100881218442188880b99aa970b9a9aaab');
 const atlasTex=new THREE.CanvasTexture(atlasC);
 atlasTex.magFilter=atlasTex.minFilter=THREE.NearestFilter;
 const solidMat=new THREE.MeshLambertMaterial({map:atlasTex,vertexColors:true,alphaTest:.3});
