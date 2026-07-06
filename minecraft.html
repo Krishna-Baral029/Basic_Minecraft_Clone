@@ -447,6 +447,9 @@ fillTilePxN(25,['#966c4a','#79553a','#593d29','#b9855c','#555555','#6f6f6f'],
   '0012110000121033300201030001200303021000330120303312110330011133301421103301210300212100031211333001201050120103300120030102103133021000311210330302110330121033301121303011200300410133330121033012103330012400330210030302110003012030330210300311210030121330');
 fillTilePxN(26,['#552e0f','#3f210a','#341907','#6e3c15','#555555','#6f6f6f'],
   '0012110000121033300201030001200303021000330120303312110330011133301421103301210300212100031211333310201050120103300120030102103133021000311210330302110330121033301121303011200300410133330121033012103330012400330210030302110003012030330210300311210030121330');
+// vanilla iron_ore.png (exact pixels, 1.21.4 assets): stone base + rusty peach blobs
+fillTilePxN(27,['#8f8f8f','#7f7f7f','#747474','#686868','#77674f','#887455','#af8e77','#d8af93','#e2c0aa'],
+  '0111122123222200112331100145541212565213221561111567012333211222200023355665332110115677876125602110006770121001221332000123311100356332145642121046677010670001310078032100122211110010111450101232560245677652056210120678600110542111100001111100112211001211');
 const atlasTex=new THREE.CanvasTexture(atlasC);
 atlasTex.magFilter=atlasTex.minFilter=THREE.NearestFilter;
 const solidMat=new THREE.MeshLambertMaterial({map:atlasTex,vertexColors:true,alphaTest:.3});
@@ -520,11 +523,16 @@ const FLESH_I=34,STRING_I=35,EYE_I=36,PORK_I=37,PORKC_I=38,CHICK_I=39,CHICKC_I=4
 // farmland (hoe-tilled soil): never an inventory item — it exists only in the
 // world, drops dirt, and reverts to dirt when trampled/covered/left dry
 const FARM=43,FARMW=44;                          // dry / water-soaked (moist)
+// ---- the stone age + iron: stone tools (cobblestone recipes, tier 2) and iron
+// ore, which needs a STONE pick to harvest and drops raw iron -> smelts to ingots
+const IRONORE=45;
+const SSWORD_I=46,SAXE_I=47,SPICK_I=48,SSHOVEL_I=49,SHOE_I=50,RAWIRON_I=51,IRONING_I=52;
 const FOOD_PTS={[FLESH_I]:4,[EYE_I]:2,[PORK_I]:3,[PORKC_I]:8,[CHICK_I]:2,[CHICKC_I]:6,[MUT_I]:2,[MUTC_I]:6}; // hunger points, vanilla-exact
 const isFood=b=>FOOD_PTS[b]!==undefined;
-const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I};    // furnace recipes: raw -> cooked
+const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I,     // furnace recipes: raw -> cooked
+  [RAWIRON_I]:IRONING_I};                                            // ...and raw iron -> iron ingot
 const FUEL={[COAL_I]:80,[PLANK]:15,[LOG]:15,[STICK_I]:5};            // burn seconds: coal 8 items, plank/log 1.5, stick 0.5 (x10s per smelt)
-const isTool=b=>b>=WSWORD_I&&b<=WHOE_I;
+const isTool=b=>(b>=WSWORD_I&&b<=WHOE_I)||(b>=SSWORD_I&&b<=SHOE_I);
 const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
 const isBed=b=>b===BEDF||b===BEDH;
@@ -573,6 +581,22 @@ function makeChunk(cx,cz){
       if(vx>=0&&vx<CH&&vz>=0&&vz<CH&&vy>=1&&vy<H&&d[(vy*CH+vz)*CH+vx]===STONE)
         d[(vy*CH+vz)*CH+vx]=COALORE;
       const s=(rv(6+i)*6)|0;                                       // drunken-walk blob
+      vx+=s===0?1:s===1?-1:0;vy+=s===2?1:s===3?-1:0;vz+=s===4?1:s===5?-1:0;}}
+  // iron ore veins: vanilla's 1.18 underground iron (triangle peaking at Y=16 of
+  // -24..56, i.e. well BELOW the surface) scaled to our stone columns — the
+  // triangle spans only the lower ~60% of the stone, peak ~30% depth. Rarer and
+  // smaller than coal (8 attempts of 2-5 vs coal's 12 of 4-9), like the real ratio
+  for(let v=12;v<20;v++){
+    const rv=n=>hash2(cx*127+v*31+n*7,cz*113+v*17-n*13);
+    let vx=(rv(1)*CH)|0,vz=(rv(2)*CH)|0,st=0;
+    for(let y=H-1;y>=1;y--)if(d[(y*CH+vz)*CH+vx]===STONE){st=y;break;}
+    if(st<2)continue;
+    let vy=1+((rv(3)+rv(4))/2*(st-1)*.6|0);
+    const vn=2+(rv(5)*4|0);
+    for(let i=0;i<vn;i++){
+      if(vx>=0&&vx<CH&&vz>=0&&vz<CH&&vy>=1&&vy<H&&d[(vy*CH+vz)*CH+vx]===STONE)
+        d[(vy*CH+vz)*CH+vx]=IRONORE;
+      const s=(rv(6+i)*6)|0;
       vx+=s===0?1:s===1?-1:0;vy+=s===2?1:s===3?-1:0;vz+=s===4?1:s===5?-1:0;}}
   chunkMap.set(ckey(cx,cz),c);return c;}
 const getChunk=(cx,cz)=>chunkMap.get(ckey(cx,cz))||makeChunk(cx,cz);
@@ -743,7 +767,8 @@ function tileFor(b,f){switch(b){
   case FURN:return(f===2||f===3)?21:f<2?22:23;   // stone top+bottom, riveted sides, mouth front
   case FURNL:return(f===2||f===3)?21:f<2?22:24;  // lit: the mouth glows (vanilla furnace_front_on)
   case FARM:return f===3?25:2;                   // tilled top, dirt sides/bottom, like vanilla
-  case FARMW:return f===3?26:2;}                 // moist: water-soaked furrows
+  case FARMW:return f===3?26:2;                  // moist: water-soaked furrows
+  case IRONORE:return 27;}
   return 3;}
 // ---- torch light: vanilla block light, level 14 at the torch, -1 per block,
 // flood-filled through transparent cells. Recomputed per chunk mesh from every
@@ -1370,7 +1395,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(r&&r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
     if(r&&r.hit&&(gB(...r.hit)===FURN||gB(...r.hit)===FURNL)){    // use the furnace: smelting GUI
       openFurnKey=fkey(...r.hit);furnaceAt(...r.hit);openInv('furnace');return;}
-    if(r&&r.hit&&hotbar[sel]&&hotbar[sel].b===WHOE_I){ // hoe use: till grass/dirt into farmland, like vanilla —
+    if(r&&r.hit&&hotbar[sel]&&(hotbar[sel].b===WHOE_I||hotbar[sel].b===SHOE_I)){ // hoe use (any tier): till grass/dirt into farmland —
       const[hx,hy,hz]=r.hit,tb=gB(hx,hy,hz);           // any face but the underside, and only with air above
       if((tb===GRASS||tb===DIRT)&&(!r.prev||r.prev[1]-hy!==-1)&&gB(hx,hy+1,hz)===AIR){
         setBlock(hx,hy,hz,FARM);flush();
@@ -2153,7 +2178,7 @@ function attack(){
   const now=performance.now();
   if(now>=nextAttack){nextAttack=now+400;
     const it=hotbar[sel];
-    m.hit(it&&it.b===WSWORD_I?8:4);}           // wooden sword: double punch damage
+    m.hit(it&&it.b===SSWORD_I?10:it&&it.b===WSWORD_I?8:4);} // swords beat fists; stone beats wood (vanilla 5 vs 4)
   return true;}                                // on cooldown: swing whiffs, no block dig behind
 
 // ================= MINING (hold left click, MC-style) =================
@@ -2164,23 +2189,26 @@ function hardFor(b){
   // time = hardness x1.5 / toolspeed(wood=2) with a pick, hardness x5 bare-handed —
   // stone 1.5 -> 1.13s/7.5s, cobble 2 -> 1.5s/10s, coal ore 3 -> 2.25s/15s.
   // Bare-hand breaking WORKS but drops nothing (see dropFor), like vanilla
-  if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL){
-    const hd=b===STONE?1.5:b===COALORE?3:b===COBBLE?2:3.5; // furnace hardness 3.5, like vanilla
-    return tb===WPICK_I?hd*1.5/2:hd*5;}
+  if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL||b===IRONORE){
+    const hd=b===STONE?1.5:b===COBBLE?2:(b===FURN||b===FURNL)?3.5:3; // vanilla hardness (ores 3)
+    const lvl=tb===SPICK_I?2:tb===WPICK_I?1:0;   // pick tier in hand: none / wooden / stone
+    if(lvl<(b===IRONORE?2:1))return hd*5;        // iron needs stone+; too low a tier = 5x, no drop
+    return hd*1.5/(lvl===2?4:2);}                // vanilla tool speeds: wooden 2x, stone 4x
   let t=isTorch(b)?.05:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
     :b===LEAF?.3:b===GLASS?.5:(b===GRASS||b===FARM||b===FARMW)?.9:(b===WOOL||isBed(b))?.8:.75;
-  if(tb===WAXE_I&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=4;
-  else if(tb===WSHOVEL_I&&(b===DIRT||b===GRASS||b===SAND||b===FARM||b===FARMW))t/=4;
-  else if(tb===WHOE_I&&b===LEAF)t=.1;
+  if((tb===WAXE_I||tb===SAXE_I)&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=tb===SAXE_I?8:4;
+  else if((tb===WSHOVEL_I||tb===SSHOVEL_I)&&(b===DIRT||b===GRASS||b===SAND||b===FARM||b===FARMW))t/=tb===SSHOVEL_I?8:4;
+  else if((tb===WHOE_I||tb===SHOE_I)&&b===LEAF)t=.1; // stone tools cut twice as fast as wood, like vanilla
   return t;}
 // what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters,
 // coal ore drops the coal item — but only when mined with a pickaxe, like vanilla
 function dropFor(b){
   if(isTorch(b))return TORCH;                  // wall variants all drop the one torch item
-  if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL){ // pickaxe-class: no pickaxe in hand =
-    const it=hotbar[sel];                      // the block shatters and drops NOTHING, like vanilla
-    if(!it||it.b!==WPICK_I)return 0;
-    return b===STONE?COBBLE:b===COALORE?COAL_I:b===FURNL?FURN:b;}
+  if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL||b===IRONORE){
+    const it=hotbar[sel],tb=it?it.b:0;         // pickaxe-class: too low a pick tier = the block
+    const lvl=tb===SPICK_I?2:tb===WPICK_I?1:0; // shatters and drops NOTHING, like vanilla
+    if(lvl<(b===IRONORE?2:1))return 0;
+    return b===STONE?COBBLE:b===COALORE?COAL_I:b===IRONORE?RAWIRON_I:b===FURNL?FURN:b;}
   return(b===GRASS||b===FARM||b===FARMW)?DIRT:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
 // sound family + particle colour per block (dirt is gravel-voiced, like vanilla)
 function matFor(b){
@@ -2188,6 +2216,7 @@ function matFor(b){
   if(b===SAND)return{hit:'stepSand',dig:'digSand',col:0xdcd49a};
   if(b===STONE||b===COBBLE||b===FURN||b===FURNL)return{hit:'stepStone',dig:'digStone',col:0x8b8b8b};
   if(b===COALORE)return{hit:'stepStone',dig:'digStone',col:0x4a4a48}; // stone voice, sooty debris
+  if(b===IRONORE)return{hit:'stepStone',dig:'digStone',col:0xd8af93}; // stone voice, rusty debris
   if(b===LOG||b===PLANK||b===CTABLE||isDoor(b)||isTorch(b))return{hit:'stepWood',dig:'digWood',col:0x8a6a40}; // torch = wood family, like vanilla
   if(b===DIRT||b===FARM||b===FARMW)return{hit:'stepGravel',dig:'digGravel',col:0x8a5a32};
   if(b===GLASS)return{hit:'stepStone',dig:'glassBreak',col:0xd6eef5};
@@ -2391,6 +2420,9 @@ const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[
   [PORK_I]:'Raw Porkchop',[PORKC_I]:'Cooked Porkchop',[CHICK_I]:'Raw Chicken',
   [CHICKC_I]:'Cooked Chicken',[MUT_I]:'Raw Mutton',[MUTC_I]:'Cooked Mutton',
   [FARM]:'Farmland',[FARMW]:'Farmland',
+  [IRONORE]:'Iron Ore',[RAWIRON_I]:'Raw Iron',[IRONING_I]:'Iron Ingot',
+  [SSWORD_I]:'Stone Sword',[SAXE_I]:'Stone Axe',[SPICK_I]:'Stone Pickaxe',
+  [SSHOVEL_I]:'Stone Shovel',[SHOE_I]:'Stone Hoe',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -2454,6 +2486,23 @@ Object.assign(ITEM_ART,{
   [CHICKC_I]:['................','.....0000.......','....0123100.....','....42144140....','...0314125536...','...03132555216..','...001255522316.','..0324255223316.','..0330240033146.','..031002520116..','..010405524046..','..70401221066...','..860022106.....','....670066......','....8666........','................'],
   [MUT_I]:['................','...........00...','..........1230..','..........1240..','.........12540..','.........15637..','........168637..','.......1684507..','.....11265850...','....166286220...','...1624442637...','..16844448607...','..1628448240....','..0325665307....','..700000077.....','...777777.......'],
   [MUTC_I]:['................','...........00...','..........1230..','..........1240..','.........12540..','.........15637..','........168637..','.......1684507..','.....11265850...','....166286220...','...1624442637...','..16844448607...','..1628448240....','..0325665307....','..700000077.....','...777777.......']});
+// stone age + iron items (exact vanilla 1.21.4 textures, auto-extracted)
+Object.assign(ITEM_PALS,{
+  [SSWORD_I]:{0:'#494949',1:'#95918d',2:'#b3b1af',3:'#212121',4:'#787777',5:'#5a5a5a',6:'#493615',7:'#684e1e',8:'#896727',9:'#281e0b'},
+  [SAXE_I]:{0:'#494949',1:'#9a9a9a',2:'#7f7f7f',3:'#898989',4:'#493615',5:'#684e1e',6:'#181818',7:'#6c6c6c',8:'#281e0b',9:'#896727'},
+  [SPICK_I]:{0:'#494949',1:'#9a9a9a',2:'#898989',3:'#7f7f7f',4:'#493615',5:'#684e1e',6:'#181818',7:'#896727',8:'#281e0b'},
+  [SSHOVEL_I]:{0:'#494949',1:'#181818',2:'#9a9a9a',3:'#7f7f7f',4:'#898989',5:'#493615',6:'#896727',7:'#281e0b',8:'#684e1e'},
+  [SHOE_I]:{0:'#494949',1:'#9a9a9a',2:'#898989',3:'#181818',4:'#7f7f7f',5:'#493615',6:'#684e1e',7:'#896727'},
+  [RAWIRON_I]:{0:'#574d39',1:'#d8af93',2:'#fedec8',3:'#e9c8b1',4:'#fef4ed',5:'#3b3429',6:'#af8e77',7:'#887455'},
+  [IRONING_I]:{0:'#5e5e5e',1:'#a8a8a8',2:'#727272',3:'#d8d8d8',4:'#ffffff',5:'#353535',6:'#828282',7:'#585858'}});
+Object.assign(ITEM_ART,{
+  [SSWORD_I]:['.............000','............0123','...........01213','..........01213.','.........01213..','........01213...','..00...04213....','..050.04243.....','...0434143......','...044543.......','....0503........','...673003.......','..689.3303......','0079....33......','053.............','333.............'],
+  [SAXE_I]:['................','.........00.....','........0110....','.......01230....','......0122245...','......6132728...','.......6642726..','........458226..','.......498.66...','......458.......','.....458........','....498.........','...458..........','..498...........','..88............','................'],
+  [SPICK_I]:['................','................','......00000.....','.....012332045..','......06663378..','..........4236..','.........458326.','........478.636.','.......458..636.','......478...626.','.....458....616.','....478......6..','...458..........','..478...........','..88............','................'],
+  [SSHOVEL_I]:['................','................','...........001..','..........02231.','.........024321.','........0243421.','.........53421..','........56721...','.......567.1....','......587.......','.....567........','....587.........','..5567..........','..567...........','...77...........','................'],
+  [SHOE_I]:['................','.......000......','......01220.....','.......3342056..','.........34473..','..........5243..','.........5633...','........573.....','.......563......','......573.......','.....563........','....573.........','...563..........','..573...........','..33............','................'],
+  [RAWIRON_I]:['................','..00000.........','.012231000......','.024242321000...','03444242422310..','031344223231310.','536631667761610.','517616667007660.','517716670000075.','567770000243665.','5667700033321675','.567775563317005','..5555..56667005','.........566005.','..........5555..','................'],
+  [IRONING_I]:['................','................','..........00....','.......000112...','....0001333312..','.00013333333312.','0433333333334432','0143333334443215','0114334443622615','0111443622221115','061136222211655.','.061362266555...','..06167555......','...0055.........','................','................']});
 function itemCanvas(id){                       // shared by the hotbar icons and the 1st-person hand sprite
   const rows=ITEM_ART[id],c=document.createElement('canvas');c.width=c.height=16;
   const g=c.getContext('2d'),pal=ITEM_PALS[id]||ITEM_PAL;
@@ -2601,7 +2650,12 @@ const RECIPES=[
   [['PPP','.S.','.S.'],WPICK_I,1],  // vanilla wooden_pickaxe
   [['PP','PS','.S'],WAXE_I,1],      // vanilla wooden_axe
   [['P','S','S'],WSHOVEL_I,1],      // vanilla wooden_shovel
-  [['PP','.S','.S'],WHOE_I,1]];     // vanilla wooden_hoe
+  [['PP','.S','.S'],WHOE_I,1],      // vanilla wooden_hoe
+  [['O','O','S'],SSWORD_I,1],       // the stone age: same vanilla shapes, cobblestone heads
+  [['OOO','.S.','.S.'],SPICK_I,1],
+  [['OO','OS','.S'],SAXE_I,1],
+  [['O','S','S'],SSHOVEL_I,1],
+  [['OO','.S','.S'],SHOE_I,1]];
 function matchCraft(slots,w){       // w = grid width (2 or 3), slots is w*w long
   let x0=w,x1=-1,y0=w,y1=-1;
   for(let y=0;y<w;y++)for(let x=0;x<w;x++)if(slots[y*w+x]){
@@ -2848,8 +2902,10 @@ const HOLD_TOOL={x:.66,y:-.36,z:-.74,rx:0,ry:-.3,rz:.5}; // vanilla handheld.jso
                                                          // 25° plus ~4° to cancel the clockwise shear our yaw +
                                                          // corner perspective add — the head tip lands at ~100°,
                                                          // just left of vertical, like the real game
-const isHafted=b=>b===WAXE_I||b===WPICK_I||b===WSHOVEL_I||b===WHOE_I;
-const upright=b=>isHafted(b)||b===TORCH||(b>=FLESH_I&&b<=MUTC_I); // upright items share the tool pose —
+const isHafted=b=>b===WAXE_I||b===WPICK_I||b===WSHOVEL_I||b===WHOE_I
+  ||b===SAXE_I||b===SPICK_I||b===SSHOVEL_I||b===SHOE_I;
+const upright=b=>isHafted(b)||b===TORCH||(b>=FLESH_I&&b<=MUTC_I)
+  ||b===RAWIRON_I||b===IRONING_I; // upright items share the tool pose —
                                          // vanilla's torch/food items (item/generated) use the
                                          // identical [0,-90,25] first-person transform
 const holdCache={};
