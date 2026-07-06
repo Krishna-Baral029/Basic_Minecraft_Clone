@@ -527,12 +527,14 @@ const FARM=43,FARMW=44;                          // dry / water-soaked (moist)
 // ore, which needs a STONE pick to harvest and drops raw iron -> smelts to ingots
 const IRONORE=45;
 const SSWORD_I=46,SAXE_I=47,SPICK_I=48,SSHOVEL_I=49,SHOE_I=50,RAWIRON_I=51,IRONING_I=52;
+// the iron age: ingot-headed tools, tier 3 — vanilla speed 6x, sword damage 6
+const ISWORD_I=53,IAXE_I=54,IPICK_I=55,ISHOVEL_I=56,IHOE_I=57;
 const FOOD_PTS={[FLESH_I]:4,[EYE_I]:2,[PORK_I]:3,[PORKC_I]:8,[CHICK_I]:2,[CHICKC_I]:6,[MUT_I]:2,[MUTC_I]:6}; // hunger points, vanilla-exact
 const isFood=b=>FOOD_PTS[b]!==undefined;
 const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I,     // furnace recipes: raw -> cooked
   [RAWIRON_I]:IRONING_I};                                            // ...and raw iron -> iron ingot
 const FUEL={[COAL_I]:80,[PLANK]:15,[LOG]:15,[STICK_I]:5};            // burn seconds: coal 8 items, plank/log 1.5, stick 0.5 (x10s per smelt)
-const isTool=b=>(b>=WSWORD_I&&b<=WHOE_I)||(b>=SSWORD_I&&b<=SHOE_I);
+const isTool=b=>(b>=WSWORD_I&&b<=WHOE_I)||(b>=SSWORD_I&&b<=SHOE_I)||(b>=ISWORD_I&&b<=IHOE_I);
 const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
 const isBed=b=>b===BEDF||b===BEDH;
@@ -1395,7 +1397,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(r&&r.hit&&gB(...r.hit)===CTABLE){openInv('table');return;} // use the table: 3x3 crafting
     if(r&&r.hit&&(gB(...r.hit)===FURN||gB(...r.hit)===FURNL)){    // use the furnace: smelting GUI
       openFurnKey=fkey(...r.hit);furnaceAt(...r.hit);openInv('furnace');return;}
-    if(r&&r.hit&&hotbar[sel]&&(hotbar[sel].b===WHOE_I||hotbar[sel].b===SHOE_I)){ // hoe use (any tier): till grass/dirt into farmland —
+    if(r&&r.hit&&hotbar[sel]&&(hotbar[sel].b===WHOE_I||hotbar[sel].b===SHOE_I||hotbar[sel].b===IHOE_I)){ // hoe use (any tier): till grass/dirt into farmland —
       const[hx,hy,hz]=r.hit,tb=gB(hx,hy,hz);           // any face but the underside, and only with air above
       if((tb===GRASS||tb===DIRT)&&(!r.prev||r.prev[1]-hy!==-1)&&gB(hx,hy+1,hz)===AIR){
         setBlock(hx,hy,hz,FARM);flush();
@@ -2178,7 +2180,7 @@ function attack(){
   const now=performance.now();
   if(now>=nextAttack){nextAttack=now+400;
     const it=hotbar[sel];
-    m.hit(it&&it.b===SSWORD_I?10:it&&it.b===WSWORD_I?8:4);} // swords beat fists; stone beats wood (vanilla 5 vs 4)
+    m.hit(it&&it.b===ISWORD_I?12:it&&it.b===SSWORD_I?10:it&&it.b===WSWORD_I?8:4);} // vanilla sword damage 4/5/6 (x2 scale)
   return true;}                                // on cooldown: swing whiffs, no block dig behind
 
 // ================= MINING (hold left click, MC-style) =================
@@ -2191,14 +2193,16 @@ function hardFor(b){
   // Bare-hand breaking WORKS but drops nothing (see dropFor), like vanilla
   if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL||b===IRONORE){
     const hd=b===STONE?1.5:b===COBBLE?2:(b===FURN||b===FURNL)?3.5:3; // vanilla hardness (ores 3)
-    const lvl=tb===SPICK_I?2:tb===WPICK_I?1:0;   // pick tier in hand: none / wooden / stone
-    if(lvl<(b===IRONORE?2:1))return hd*5;        // iron needs stone+; too low a tier = 5x, no drop
-    return hd*1.5/(lvl===2?4:2);}                // vanilla tool speeds: wooden 2x, stone 4x
+    const lvl=tb===IPICK_I?3:tb===SPICK_I?2:tb===WPICK_I?1:0; // pick tier: none/wood/stone/iron
+    if(lvl<(b===IRONORE?2:1))return hd*5;        // iron ore needs stone+; too low a tier = 5x, no drop
+    return hd*1.5/(lvl===3?6:lvl===2?4:2);}      // vanilla tool speeds: wood 2x, stone 4x, iron 6x
   let t=isTorch(b)?.05:(b===LOG||b===PLANK||b===CTABLE||isDoor(b))?3
     :b===LEAF?.3:b===GLASS?.5:(b===GRASS||b===FARM||b===FARMW)?.9:(b===WOOL||isBed(b))?.8:.75;
-  if((tb===WAXE_I||tb===SAXE_I)&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))t/=tb===SAXE_I?8:4;
-  else if((tb===WSHOVEL_I||tb===SSHOVEL_I)&&(b===DIRT||b===GRASS||b===SAND||b===FARM||b===FARMW))t/=tb===SSHOVEL_I?8:4;
-  else if((tb===WHOE_I||tb===SHOE_I)&&b===LEAF)t=.1; // stone tools cut twice as fast as wood, like vanilla
+  if((tb===WAXE_I||tb===SAXE_I||tb===IAXE_I)&&(b===LOG||b===PLANK||b===CTABLE||isDoor(b)))
+    t/=tb===IAXE_I?12:tb===SAXE_I?8:4;
+  else if((tb===WSHOVEL_I||tb===SSHOVEL_I||tb===ISHOVEL_I)&&(b===DIRT||b===GRASS||b===SAND||b===FARM||b===FARMW))
+    t/=tb===ISHOVEL_I?12:tb===SSHOVEL_I?8:4;
+  else if((tb===WHOE_I||tb===SHOE_I||tb===IHOE_I)&&b===LEAF)t=.1; // vanilla speed ratios: wood 2, stone 4, iron 6
   return t;}
 // what mining yields, like MC: grass drops dirt, stone drops cobble, glass shatters,
 // coal ore drops the coal item — but only when mined with a pickaxe, like vanilla
@@ -2206,7 +2210,7 @@ function dropFor(b){
   if(isTorch(b))return TORCH;                  // wall variants all drop the one torch item
   if(b===STONE||b===COBBLE||b===COALORE||b===FURN||b===FURNL||b===IRONORE){
     const it=hotbar[sel],tb=it?it.b:0;         // pickaxe-class: too low a pick tier = the block
-    const lvl=tb===SPICK_I?2:tb===WPICK_I?1:0; // shatters and drops NOTHING, like vanilla
+    const lvl=tb===IPICK_I?3:tb===SPICK_I?2:tb===WPICK_I?1:0; // shatters and drops NOTHING, like vanilla
     if(lvl<(b===IRONORE?2:1))return 0;
     return b===STONE?COBBLE:b===COALORE?COAL_I:b===IRONORE?RAWIRON_I:b===FURNL?FURN:b;}
   return(b===GRASS||b===FARM||b===FARMW)?DIRT:(b===GLASS||isDoor(b))?0:isBed(b)?BEDF:b;}
@@ -2423,6 +2427,8 @@ const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[
   [IRONORE]:'Iron Ore',[RAWIRON_I]:'Raw Iron',[IRONING_I]:'Iron Ingot',
   [SSWORD_I]:'Stone Sword',[SAXE_I]:'Stone Axe',[SPICK_I]:'Stone Pickaxe',
   [SSHOVEL_I]:'Stone Shovel',[SHOE_I]:'Stone Hoe',
+  [ISWORD_I]:'Iron Sword',[IAXE_I]:'Iron Axe',[IPICK_I]:'Iron Pickaxe',
+  [ISHOVEL_I]:'Iron Shovel',[IHOE_I]:'Iron Hoe',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -2494,7 +2500,12 @@ Object.assign(ITEM_PALS,{
   [SSHOVEL_I]:{0:'#494949',1:'#181818',2:'#9a9a9a',3:'#7f7f7f',4:'#898989',5:'#493615',6:'#896727',7:'#281e0b',8:'#684e1e'},
   [SHOE_I]:{0:'#494949',1:'#9a9a9a',2:'#898989',3:'#181818',4:'#7f7f7f',5:'#493615',6:'#684e1e',7:'#896727'},
   [RAWIRON_I]:{0:'#574d39',1:'#d8af93',2:'#fedec8',3:'#e9c8b1',4:'#fef4ed',5:'#3b3429',6:'#af8e77',7:'#887455'},
-  [IRONING_I]:{0:'#5e5e5e',1:'#a8a8a8',2:'#727272',3:'#d8d8d8',4:'#ffffff',5:'#353535',6:'#828282',7:'#585858'}});
+  [IRONING_I]:{0:'#5e5e5e',1:'#a8a8a8',2:'#727272',3:'#d8d8d8',4:'#ffffff',5:'#353535',6:'#828282',7:'#585858'},
+  [ISWORD_I]:{0:'#444444',1:'#ffffff',2:'#181818',3:'#bebebe',4:'#d8d8d8',5:'#6b6b6b',6:'#969696',7:'#493615',8:'#684e1e',9:'#896727',a:'#281e0b'},
+  [IAXE_I]:{0:'#444444',1:'#ffffff',2:'#c1c1c1',3:'#d8d8d8',4:'#493615',5:'#684e1e',6:'#181818',7:'#969696',8:'#281e0b',9:'#896727'},
+  [IPICK_I]:{0:'#444444',1:'#ffffff',2:'#d8d8d8',3:'#c1c1c1',4:'#493615',5:'#684e1e',6:'#181818',7:'#896727',8:'#281e0b'},
+  [ISHOVEL_I]:{0:'#444444',1:'#181818',2:'#ffffff',3:'#c1c1c1',4:'#d8d8d8',5:'#493615',6:'#896727',7:'#281e0b',8:'#684e1e'},
+  [IHOE_I]:{0:'#444444',1:'#ffffff',2:'#d8d8d8',3:'#181818',4:'#c1c1c1',5:'#493615',6:'#684e1e',7:'#896727'}});
 Object.assign(ITEM_ART,{
   [SSWORD_I]:['.............000','............0123','...........01213','..........01213.','.........01213..','........01213...','..00...04213....','..050.04243.....','...0434143......','...044543.......','....0503........','...673003.......','..689.3303......','0079....33......','053.............','333.............'],
   [SAXE_I]:['................','.........00.....','........0110....','.......01230....','......0122245...','......6132728...','.......6642726..','........458226..','.......498.66...','......458.......','.....458........','....498.........','...458..........','..498...........','..88............','................'],
@@ -2502,7 +2513,12 @@ Object.assign(ITEM_ART,{
   [SSHOVEL_I]:['................','................','...........001..','..........02231.','.........024321.','........0243421.','.........53421..','........56721...','.......567.1....','......587.......','.....567........','....587.........','..5567..........','..567...........','...77...........','................'],
   [SHOE_I]:['................','.......000......','......01220.....','.......3342056..','.........34473..','..........5243..','.........5633...','........573.....','.......563......','......573.......','.....563........','....573.........','...563..........','..573...........','..33............','................'],
   [RAWIRON_I]:['................','..00000.........','.012231000......','.024242321000...','03444242422310..','031344223231310.','536631667761610.','517616667007660.','517716670000075.','567770000243665.','5667700033321675','.567775563317005','..5555..56667005','.........566005.','..........5555..','................'],
-  [IRONING_I]:['................','................','..........00....','.......000112...','....0001333312..','.00013333333312.','0433333333334432','0143333334443215','0114334443622615','0111443622221115','061136222211655.','.061362266555...','..06167555......','...0055.........','................','................']});
+  [IRONING_I]:['................','................','..........00....','.......000112...','....0001333312..','.00013333333312.','0433333333334432','0143333334443215','0114334443622615','0111443622221115','061136222211655.','.061362266555...','..06167555......','...0055.........','................','................'],
+  [ISWORD_I]:['.............000','............0112','...........01312','..........01312.','.........01342..','........01342...','..00...04342....','..050.04342.....','...0624642......','...066542.......','....0502........','...782002.......','..79a.2202......','008a....22......','052.............','222.............'],
+  [IAXE_I]:['................','.........00.....','........0110....','.......01230....','......0122245...','......6132728...','.......6642726..','........458226..','.......498.66...','......458.......','.....458........','....498.........','...458..........','..498...........','..88............','................'],
+  [IPICK_I]:['................','................','......00000.....','.....012332045..','......06663378..','..........4236..','.........458326.','........478.636.','.......458..636.','......478...626.','.....458....616.','....478......6..','...458..........','..478...........','..88............','................'],
+  [ISHOVEL_I]:['................','................','...........001..','..........02231.','.........024321.','........0243421.','.........53421..','........56721...','.......567.1....','......587.......','.....567........','....587.........','..5567..........','..567...........','...77...........','................'],
+  [IHOE_I]:['................','.......000......','......01220.....','.......3342056..','.........34473..','..........5243..','.........5633...','........573.....','.......563......','......573.......','.....563........','....573.........','...563..........','..573...........','..33............','................']});
 function itemCanvas(id){                       // shared by the hotbar icons and the 1st-person hand sprite
   const rows=ITEM_ART[id],c=document.createElement('canvas');c.width=c.height=16;
   const g=c.getContext('2d'),pal=ITEM_PALS[id]||ITEM_PAL;
@@ -2638,7 +2654,7 @@ const addStack=it=>mergeInto([hotbar,invSlots],it);
 // bounding box of the grid equals the pattern (or its horizontal mirror, like
 // vanilla). 3-wide/3-tall patterns can only ever fit the crafting table's 3x3
 // grid, so tools genuinely require a crafting table - just like the real game.
-const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL,C:COAL_I,O:COBBLE};
+const RKEY={P:PLANK,S:STICK_I,L:LOG,W:WOOL,C:COAL_I,O:COBBLE,I:IRONING_I};
 const RECIPES=[
   [['L'],PLANK,4],                  // 1 log -> 4 planks
   [['C','S'],TORCH,4],              // vanilla torch: coal over a stick -> 4 torches
@@ -2655,7 +2671,12 @@ const RECIPES=[
   [['OOO','.S.','.S.'],SPICK_I,1],
   [['OO','OS','.S'],SAXE_I,1],
   [['O','S','S'],SSHOVEL_I,1],
-  [['OO','.S','.S'],SHOE_I,1]];
+  [['OO','.S','.S'],SHOE_I,1],
+  [['I','I','S'],ISWORD_I,1],       // the iron age: same vanilla shapes, ingot heads
+  [['III','.S.','.S.'],IPICK_I,1],
+  [['II','IS','.S'],IAXE_I,1],
+  [['I','S','S'],ISHOVEL_I,1],
+  [['II','.S','.S'],IHOE_I,1]];
 function matchCraft(slots,w){       // w = grid width (2 or 3), slots is w*w long
   let x0=w,x1=-1,y0=w,y1=-1;
   for(let y=0;y<w;y++)for(let x=0;x<w;x++)if(slots[y*w+x]){
@@ -2903,7 +2924,8 @@ const HOLD_TOOL={x:.66,y:-.36,z:-.74,rx:0,ry:-.3,rz:.5}; // vanilla handheld.jso
                                                          // corner perspective add — the head tip lands at ~100°,
                                                          // just left of vertical, like the real game
 const isHafted=b=>b===WAXE_I||b===WPICK_I||b===WSHOVEL_I||b===WHOE_I
-  ||b===SAXE_I||b===SPICK_I||b===SSHOVEL_I||b===SHOE_I;
+  ||b===SAXE_I||b===SPICK_I||b===SSHOVEL_I||b===SHOE_I
+  ||b===IAXE_I||b===IPICK_I||b===ISHOVEL_I||b===IHOE_I;
 const upright=b=>isHafted(b)||b===TORCH||(b>=FLESH_I&&b<=MUTC_I)
   ||b===RAWIRON_I||b===IRONING_I; // upright items share the tool pose —
                                          // vanilla's torch/food items (item/generated) use the
