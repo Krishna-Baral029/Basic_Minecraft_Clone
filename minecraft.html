@@ -1328,7 +1328,8 @@ renderer.domElement.addEventListener('mousedown',e=>{
     if(r&&r.hit&&(gB(...r.hit)===FURN||gB(...r.hit)===FURNL)){    // use the furnace: smelting GUI
       openFurnKey=fkey(...r.hit);furnaceAt(...r.hit);openInv('furnace');return;}
     const eit=hotbar[sel];                       // food in hand + room in the belly: hold to eat, like vanilla
-    if(eit&&isFood(eit.b)&&eit.count>0&&(player.food<20||isCreative())){eating=true;eatT=0;return;}
+    if(eit&&isFood(eit.b)&&eit.count>0&&(Math.round(player.food)<20||isCreative())){eating=true;eatT=0;return;}
+                                                 // rounded like the HUD: a bar that LOOKS full refuses food
     if(!r||!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
     const b=gB(x,y,z);if(b!==AIR&&b!==WATERB)return;
@@ -2161,8 +2162,8 @@ function stopMining(){mining=null;crackMesh.visible=false;}
 let eating=false,eatT=0;
 function updateEating(dt){
   const it=hotbar[sel];
-  if(!eating||invOpen||quitOpen||!it||!isFood(it.b)||it.count<=0||(player.food>=20&&!isCreative())){
-    eating=false;eatT=0;return;}
+  if(!eating||invOpen||quitOpen||!it||!isFood(it.b)||it.count<=0||(Math.round(player.food)>=20&&!isCreative())){
+    eating=false;eatT=0;return;}                 // same rounding as the HUD bar, so display and rule agree
   const prev=eatT;eatT+=dt;
   if((prev%.24)>(eatT%.24))play('eat',.6,.85+Math.random()*.3); // munch every ~1/4s
   if(Math.random()<dt*14){                       // food crumbs sprayed in front of the face
