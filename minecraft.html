@@ -1024,6 +1024,7 @@ function updateFurnaces(dt){
       if(--s.f.count<=0)s.f=null;
       if(invOpen&&openFurnKey===k)refreshInv();}
     const lit=s.burn>0&&can;                     // FIRE SHOWS ONLY WHILE ACTUALLY SMELTING — an empty
+    s.lit=lit;                                   // the GUI flame gauge reads this, so it can't sit lit while idle
     if(lit){                                     // furnace never keeps burning (no leftover-fuel glow)
       s.burn-=dt;                                // remaining fuel is frozen, not wasted, when idle
       s.cook+=dt;
@@ -2867,7 +2868,7 @@ function slotHTML(it,out){          // out: the crafting result slot (centered t
 function updateFurnGUI(){                          // live flame + arrow gauges while the GUI is up
   if(!invOpen||invMode!=='furnace')return;
   const s=furnaces[openFurnKey];if(!s)return;
-  document.getElementById('flameFg').style.clipPath='inset('+(s.burnMax>0?100-Math.max(0,s.burn)/s.burnMax*100:100)+'% 0 0 0)';
+  document.getElementById('flameFg').style.clipPath='inset('+(s.lit&&s.burnMax>0?100-Math.max(0,s.burn)/s.burnMax*100:100)+'% 0 0 0)'; // flame only while actually smelting
   document.getElementById('arrowFg').style.clipPath='inset(0 '+(100-Math.min(1,s.cook/10)*100)+'% 0 0)';}
 function refreshInv(){
   invEl.querySelectorAll('.islot').forEach(d=>{
