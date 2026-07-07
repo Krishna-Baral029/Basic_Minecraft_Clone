@@ -3242,15 +3242,32 @@ $('bQuitYes').onclick=()=>{                       // "Yes" — actually close th
   window.open('','_self');window.close();
   setTimeout(()=>{$('quitTitle').textContent='Your browser blocked closing the tab — please close it manually.';},150);};
 $('bQuitNo').onclick=closeQuit;
-$('bLobby').onclick=()=>{                         // save EVERYTHING and return to the lobby (keeps the world)
+$('bLobby').onclick=()=>{                         // save EVERYTHING, show a vanilla "Saving world" screen, then title
   snapshotWorld();                               // persists edits (incl. villager houses), inventory, furnaces, time — the full save
   inGame=false;quitOpen=false;quitEl.classList.remove('show');
   if(invOpen)closeInv();
-  if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen();
   if(document.pointerLockElement)document.exitPointerLock();
-  curWorld=null;                                 // deselect; the world stays saved in the worlds list
-  infoEl.style.display='none';
-  showScreen(menuEl);startMenuMusic();play('uiClick',.4);};
+  infoEl.style.display='none';play('uiClick',.4);
+  // reuse the loading screen as the "Saving world" screen: dirt bg, filling bar, a handwritten tip
+  $('loadTitle').textContent='Saving world';
+  $('loadTip').textContent=TIPS[(Math.random()*TIPS.length)|0];
+  $('pfill').style.transition='none';$('pfill').style.width='0%';$('loadPct').textContent='0%';
+  // stage text advances through vanilla-style phases as the bar fills
+  const SAVE_STAGES=[[0,'Saving world'],[.2,'Saving chunks'],[.5,'Saving entities'],[.72,'Saving player data'],[.9,'Saving progress']];
+  $('loadStage').textContent=SAVE_STAGES[0][1];
+  showScreen(loadingEl);
+  void $('pfill').offsetWidth;                    // reflow so the reset width sticks before we animate
+  const dur=1600+Math.random()*700;              // ~1.6-2.3s, like vanilla's brief save pause
+  const t0=performance.now();
+  (function tickSave(){
+    const p=Math.min(1,(performance.now()-t0)/dur);
+    $('pfill').style.transition='width .12s linear';
+    $('pfill').style.width=(p*100)+'%';$('loadPct').textContent=Math.round(p*100)+'%';
+    for(let i=SAVE_STAGES.length-1;i>=0;i--)if(p>=SAVE_STAGES[i][0]){ // pick the current phase
+      if($('loadStage').textContent!==SAVE_STAGES[i][1])$('loadStage').textContent=SAVE_STAGES[i][1];break;}
+    if(p<1){requestAnimationFrame(tickSave);return;}
+    curWorld=null;                               // deselect; the world stays saved in the worlds list
+    showScreen(menuEl);startMenuMusic();})();};
 // exiting fullscreen is now the F11 shortcut (see the keydown handler + the #fsHint message)
 $('bCancelSel').onclick=()=>showScreen(menuEl);
 $('bCreateNew').onclick=()=>{
