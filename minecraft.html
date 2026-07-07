@@ -150,6 +150,11 @@
   #quitTitle{color:#fff;font-size:28px;line-height:1.4;margin-bottom:24px;text-align:center;text-shadow:2px 2px 0 #3f3f3f;max-width:560px;font-family:'VT323',monospace}
   #quitConfirm .btnrow{justify-content:center;margin-bottom:10px}
   #quitConfirm .mbtn{font-family:'VT323',monospace;font-size:24px} /* MC pixel font on the dialog buttons too */
+  /* game-style keycap: a raised pixel-key badge showing the shortcut, like a hotbar slot */
+  .keycap{display:inline-block;margin:0 4px;padding:1px 8px 2px;font-size:17px;color:#e6e6e6;background:#5a5a5a;
+    border:2px solid #1b1b1b;border-radius:3px;box-shadow:inset 2px 2px 0 #8a8a8a,inset -2px -2px 0 #383838;
+    text-shadow:1px 1px 0 #2a2a2a;vertical-align:middle;line-height:1}
+  #fsHint{font-family:'VT323',monospace;font-size:20px;color:#a0a0a0;margin-top:18px;text-shadow:1px 1px 0 #000}
   #bExitFs{width:510px;margin:0}
 </style>
 </head>
@@ -278,15 +283,13 @@ Watch out for zombies at night!</div>
   <div id="quitPanel">
     <div id="quitTitle">Are you sure you want to Quit the Game?</div>
     <div class="btnrow">
-      <button class="mbtn" id="bLobby">Save and Exit to Lobby</button>
-    </div>
-    <div class="btnrow">
       <button class="mbtn half" id="bQuitYes">Yes</button>
       <button class="mbtn half" id="bQuitNo">No</button>
     </div>
     <div class="btnrow">
-      <button class="mbtn" id="bExitFs">Exit Full Screen</button>
+      <button class="mbtn" id="bLobby">Save and Quit to Title</button>
     </div>
+    <div id="fsHint">Press <span class="keycap">F11</span> to exit full screen</div>
   </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1286,6 +1289,8 @@ addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;      // typing a world name, not playing
   if(e.code==='F3'){e.preventDefault();   // toggle debug overlay
     showDebug=!showDebug;debugEl.style.display=showDebug?'block':'none';return;}
+  if(e.code==='F11'&&document.fullscreenElement){e.preventDefault(); // F11 leaves the Fullscreen-API mode (matches the badge hint)
+    if(document.exitFullscreen)document.exitFullscreen();return;}
   lastKey=e.code+(e.repeat?' (rpt)':'');               // F3 key monitor: what the keyboard actually sent
   // E or Tab both toggle the inventory. Tab is the anti-ghosting fallback: on many
   // membrane keyboards W+Shift+Space+E is physically unreportable (the E press never
@@ -3246,9 +3251,7 @@ $('bLobby').onclick=()=>{                         // save EVERYTHING and return 
   curWorld=null;                                 // deselect; the world stays saved in the worlds list
   infoEl.style.display='none';
   showScreen(menuEl);startMenuMusic();play('uiClick',.4);};
-$('bExitFs').onclick=()=>{                        // leave fullscreen (releases the keyboard lock) and dismiss
-  if(document.exitFullscreen)document.exitFullscreen();
-  quitOpen=false;quitEl.classList.remove('show');play('uiClick',.4);};
+// exiting fullscreen is now the F11 shortcut (see the keydown handler + the #fsHint message)
 $('bCancelSel').onclick=()=>showScreen(menuEl);
 $('bCreateNew').onclick=()=>{
   $('wName').value=defaultName();$('wSeed').value='';gmI=0;diffI=2;
