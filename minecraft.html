@@ -278,6 +278,9 @@ Watch out for zombies at night!</div>
   <div id="quitPanel">
     <div id="quitTitle">Are you sure you want to Quit the Game?</div>
     <div class="btnrow">
+      <button class="mbtn" id="bLobby">Save and Exit to Lobby</button>
+    </div>
+    <div class="btnrow">
       <button class="mbtn half" id="bQuitYes">Yes</button>
       <button class="mbtn half" id="bQuitNo">No</button>
     </div>
@@ -462,15 +465,32 @@ solidMat.onBeforeCompile=sh=>{
   sh.fragmentShader='varying float vTl;uniform float uDay;\n'+
     sh.fragmentShader.replace('#include <emissivemap_fragment>',
       '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance+=diffuseColor.rgb*vec3(1.,.88,.66)*max(0.,vTl-uDay*.85);');};
-const wC=document.createElement('canvas');wC.width=wC.height=16;
-const wctx=wC.getContext('2d');
-for(let y=0;y<16;y++)for(let x=0;x<16;x++){
-  wctx.fillStyle=rnd(['#3b6ed0','#3464c4','#4276da','#3a6bcd','#5285e6']);
-  wctx.fillRect(x,y,1,1);}
-const waterTex=new THREE.CanvasTexture(wC);
-waterTex.magFilter=waterTex.minFilter=THREE.NearestFilter;
+// EXACT vanilla water_still.png — all 32 grayscale frames (frametime 2 = 3.2s loop),
+// tinted by the plains-biome water colour #3f76e4. This is Mojang's real animated
+// water texture, pixel-for-pixel, not a synthesized approximation.
+const WPAL=['#284c93','#2a509b','#2d55a4','#2f59ad','#325fb8','#335fb9','#3361bb','#3461bc','#3462be','#3463bf','#3563c1','#3d73de','#3f76e4'];
+const WFRAMES_S=['31110001111136580000111111000000110000001133310010001331113311110011100001000111001011311131100031111111111176c37571113111111133cc736c7313133117000000000000010010000100011311110000000000000001000000000001000010000111113310100000000113cc531013117bb311311111','21110001111137480000111111000000110000001133311110001331113311110011100001000131000001311131000011111111111176c37471113111101133cc73c46311133117000000000000010010000100011111110000000000000001000000000000000010000111113310100000000013cc431013117cc311311131','71110001111117c90000111101000000110000001133311110001331111311110011110001000131000001311131000011111011111136c37c21112111101133c773c473111371170000000000000101000001000011111100000000000000000000000000000000100001111133101100000000136c431013117cc313311131','73110001311113c80100111000000000011101001131311110001131111311110011110001000131000001311111000011110011311126c33c311171111011336372c4731133711700000000010101010000000000111111000000000000000000000000000000001000001111331111000000001336431011117cc313311131','73110001311113480100131000000000011101001131311110001111111311110011110000000131000001311111000011110011331136c33c311171111011337377c471113763170000000001010111000000010011111100000000000000000100000100000000100000111133111100000000113743101111766313311131','73110001331113490100131000000000111101000133311110001111111111110011100000000131000001311111100011110011331136c336311171110001733337c4711137c3320000000001011111000000010001111000000000000000001101010110000000310000111133110100000000113743101111377333711331','73100013331113480101331000000000111101000133711110000111111111110011100000001321000001311110100011110011331126c337311171110001733333cc311136c3131000000001111311000000010000111000000000000000001101010110000000310000011133110100000000113243101111333337711331','73100013331113490101331000000000111011000133711110000011011111110001100000001371010001311000100011110011331126c333111371100001733333cc311136c3331000000001111313000000000000011000000000000000001101011110000000310000011133111100000000131243101111333336611331','73100013331113450101331000000000131111000133611131000000001111111001100000001371010001311000100011111011331176c331111373100001733133c631113cc333110000000111131300000000000001100000000000000000111101111000000031000001113111110000000013134310111113333cc33311','73101013723113450111371000000000333111000133c11331000000000111111001100000011133010001311000000011111011331176c3111113731000017331137331113cc333110000000111131300000000000011100000000000000000111101111000000031000011133111110000000013134310111113337cc33311','73101017773133c50111771000000000333111000133c3133100000000011111100100000001113300000131100000001111101113117cc31111133310000173311333111136c333110000000111133700000000000011110000000001000000331101111000000031000011111111110000000013134310111113337cc33311','71101017323133c40011771000000000373111000173c3133100000000011111100100000011113100000121100000001113111113117cc31111133311000173311131111137c33731000000011113370000000000001131000000000100000033100111110000003100001111111111000000001333c310111113336c433311','73101117333133cc00116730000000003c7111000172c31331100000000111111001001000111131000011311000000011131111131176c31111133311000173311131111113637731000000011113361000000000001131000000000100000033100111110000011100001111111111000000001333c31011111313cc533311','73111117333133cc0011c731011000007c6311000177c73771100000000111131000001000111111000011311000000011131111131176c31101111111000123311131111113737731000000001113361000000000001131000000000100000033100133111000011100001111111111001000003333c31011111313c4573311','73111117373133770011c731011000003cc310000177463761100000000111131000001100111111100011311000000011111111131136631100111111000133311131111113336631000000001113361000000000001111000000000100000033100133111000011100001111111111001000013333c31011111113c4573311','73111116373133320013c731011000007cc3100001674c37c3100000000113330000001100111111100011311000000011111111131137731100111111100133311131111111336633000000001111371000000000001111000000000100000033100133111100011100001111111111001000013333611011111113cc873311','33111116377333330113c331001000007cc3100001665c37c310000000011333000000110011111010001131100000001111111113113733110001111110013371111111111113c633100000001111371000000000001111000000000100000033100127111100011000001111111111001000013333711011111113cca73111','3331111c367331330113c331000000007cc3100001c65c27c2100000000113330000001100111110100011111100000111111111331133311100011111100113711111111111136633100000001131131000000000001111000000000000000013100177311100010000000111111111001000013313311011111113cca73111','3331111c7c63311301336331000000007cc3110001c65c774730000000133337000000110011111011001111110000011111111133113331110001111110011371111111111113673310000000113113000000000000011100000000000000001310017c331100110000000111111110001000013311311011111113cca73111','3331111c7c63311301337331000000007c63110001cc5c734730000000133337000001110111111011001111110000011111113133113331110001110110011371111100001113773310000000113113000000000000000000000000000000001110017c333100110000000111111110001000113111111011111113cca71111','3331113c7c63311301333331000000003c73110001cc5c734731000000132337000001110111311011001111110000011111113133113733310001110010001371111100001111733310000000111111000000000000000000000000000000001110116c733100110000000101111110001000113111111000111113cca71110','1311113c7c633113013333310000000037311100014c5c334710000000132337000000110111311011000011110000001111113373113773110001100000001131111100001111331310000000111111000000000000000000000000000000001110017c733100100000000001111110001000113111111000111113cc971110','3111113c76733133013133310000000033311100014c5c33c310000000133333000010100111311001000111110000011111113373113773111001110000001131111100001111331310000000111111000000000000000000000000000000001100017c311100100000000001111110001000113111111000111113cc871110','3111113c77333137013133310000000033111100114c5633c310000000133333000110100011311101000011110000011111313373113673131001110000011131331111101131131310000000111111000000000000000000000000000000100000013c311100101000000001111110001000113111311000111113cc571110','311111367331313701313331000000001311110011cc57316310000000133113001110000011111101000011100000111111317363113663331001110000011131333311111331111310000000011111000000000000000000000000000000111000013c311100101000000001131111001000013111311000111113cc531110','311001373311112601313330000000001311010001cc43112110000000113111000110000001111000000011100000011011117373113761331001110000011111333311101331111110000000011101000000000000000000000000000000110000011c3111001010000000011311100010000111113100000111136c431110','311111323311137c01313311000000001311110113c6c31131100000011131110011100000011111000000111100001111113373631137c337111131000001113333773111133113111000000001111100000000000000100000000000000011000001163111001010000000013331110010000111117110011113336cc31111','311101133311136c01313311000000001111010111c7c31131100111011331110011110000011110000000111111001111111373731137c3361111311100013133337631111331131110000000010111000000000001001000000000000000110000011711110000100000010133111100100001111361101111333376c31111','311101113111136c01111111010000001111010111c7c31111101111111331110011110000011110000001111111001111111333731137c33c3111311100013133336c311113311310100000000101010000000000011010000100000000001100000113111100001000000111331111001000011133c1101111377377631111','31110011311113c40111111101000000111001001163711111101111111331110011110001001110001001111111001111111133331137c37c3111311100013373336c311111311300000000000001010000000000111110000000000000001100000013111100001000001111331111001000011127c3101111366333731111','31110001111113c50110111111000000111000001173311110001311111311110011100001001110001001311131000111111131331177c37c3111311100013367336c711111311300000000000001000000000000111111000000000000000100000011101100001000001111331110000000001366c31013113cc333311111','31110001111137450000111111000000110000001133310010001331113311110011100001001110001001311131100011111111331176c37471113111001133cc337c7311113113000000000000000010000000001111110000000000000001000000010011000010000111113311100000000113cc431013113cc311311111'];
+// A single 16x16 tile that we REDRAW each animation frame. One power-of-two tile
+// (not a 512-tall flip-book strip) is what lets us MIPMAP the water — so distant
+// water blurs into a smooth uniform sheet instead of aliasing into harsh diagonal
+// streaks/moiré, exactly like vanilla Minecraft's mipmapped water.
+const WFRAMES=32,CSW='0123456789abc';
+const wTile=document.createElement('canvas');wTile.width=wTile.height=16;
+const wtctx=wTile.getContext('2d');
+function drawWaterFrame(f){const rows=WFRAMES_S[f];
+  for(let y=0;y<16;y++)for(let x=0;x<16;x++){
+    wtctx.fillStyle=WPAL[CSW.indexOf(rows[y*16+x])];wtctx.fillRect(x,y,1,1);}}
+drawWaterFrame(0);
+let waterFrame=0;
+const waterTex=new THREE.CanvasTexture(wTile);
+waterTex.magFilter=THREE.NearestFilter;              // crisp blocky pixels up close, like MC
+waterTex.minFilter=THREE.LinearMipmapLinearFilter;   // trilinear mipmaps -> smooth at distance
+waterTex.generateMipmaps=true;
+waterTex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy()); // sharpen grazing-angle water — kills the horizon streaks
 waterTex.wrapS=waterTex.wrapT=THREE.RepeatWrapping;
-const waterMat=new THREE.MeshLambertMaterial({map:waterTex,transparent:true,opacity:.72,side:THREE.DoubleSide});
+const waterMat=new THREE.MeshLambertMaterial({map:waterTex,transparent:true,opacity:.8,side:THREE.FrontSide,depthWrite:true});
+// vanilla water writes depth (FrontSide, no back-face bleed) so far underwater edges
+// can't punch dark triangles through the near surface — the fin artifacts are gone
 // dirt-tile menu background
 const bgC=document.createElement('canvas');bgC.width=bgC.height=16;
 const bctx=bgC.getContext('2d');
@@ -525,19 +545,26 @@ const IRONORE=45;
 const SSWORD_I=46,SAXE_I=47,SPICK_I=48,SSHOVEL_I=49,SHOE_I=50,RAWIRON_I=51,IRONING_I=52;
 // the iron age: ingot-headed tools, tier 3 — vanilla speed 6x, sword damage 6
 const ISWORD_I=53,IAXE_I=54,IPICK_I=55,ISHOVEL_I=56,IHOE_I=57;
+// buckets (iron age utility) + flowing water. WATERB stays the SOURCE block
+// (saves/oceans already use id 8); WFLOW1..7 are spreading water, weakest first:
+// WFLOW7 is right next to a source (level 7 of 8), WFLOW1 is the far tip
+const BUCKET_I=58,WBUCKET_I=59;
+const WFLOW1=60,WFLOW7=66;                       // ids 60..66 = levels 1..7
+const isWater=b=>b===WATERB||(b>=WFLOW1&&b<=WFLOW7);
+const wLevel=b=>b===WATERB?8:b>=WFLOW1&&b<=WFLOW7?b-WFLOW1+1:0;
 const FOOD_PTS={[FLESH_I]:4,[EYE_I]:2,[PORK_I]:3,[PORKC_I]:8,[CHICK_I]:2,[CHICKC_I]:6,[MUT_I]:2,[MUTC_I]:6}; // hunger points, vanilla-exact
 const isFood=b=>FOOD_PTS[b]!==undefined;
 const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I,     // furnace recipes: raw -> cooked
   [RAWIRON_I]:IRONING_I};                                            // ...and raw iron -> iron ingot
 const FUEL={[COAL_I]:80,[PLANK]:15,[LOG]:15,[STICK_I]:5};            // burn seconds: coal 8 items, plank/log 1.5, stick 0.5 (x10s per smelt)
 const isTool=b=>(b>=WSWORD_I&&b<=WHOE_I)||(b>=SSWORD_I&&b<=SHOE_I)||(b>=ISWORD_I&&b<=IHOE_I);
-const stackMax=b=>isTool(b)?1:64;          // tools don't stack, like vanilla
+const stackMax=b=>isTool(b)||b===WBUCKET_I?1:b===BUCKET_I?16:64; // tools/full buckets don't stack; empties to 16, like vanilla
 const isDoor=b=>b>=DOORCL&&b<=DOOROU;
 const isBed=b=>b===BEDF||b===BEDH;
 let SEED=(Math.random()*1e9)|0;
-const isSolid=b=>b!==AIR&&b!==WATERB&&b!==DOOROL&&b!==DOOROU&&!isTorch(b); // open doors + torches are passable (torches have no collision box, like vanilla)
+const isSolid=b=>b!==AIR&&!isWater(b)&&b!==DOOROL&&b!==DOOROU&&!isTorch(b); // open doors + torches are passable (torches have no collision box, like vanilla)
 const solidAt=(x,y,z)=>y<0?true:isSolid(gB(x,y,z));
-const transp=b=>b===AIR||b===WATERB||b===LEAF||b===GLASS||isDoor(b)||isBed(b)||isTorch(b)||b===FARM||b===FARMW; // beds/farmland are shortened: neighbours must render behind them
+const transp=b=>b===AIR||isWater(b)||b===LEAF||b===GLASS||isDoor(b)||isBed(b)||isTorch(b)||b===FARM||b===FARMW; // beds/farmland are shortened: neighbours must render behind them
 function hash2(x,z){
   let n=(x*374761393+z*668265263+SEED*97531)|0;
   n=Math.imul(n^(n>>>13),1274126177);
@@ -606,7 +633,7 @@ function sB(x,y,z,v){if(y<0||y>=H)return;
   getChunk(cx,cz).data[(y*CH+(z-cz*CH))*CH+(x-cx*CH)]=v;}
 function groundH(x,z){
   for(let y=H-1;y>=0;y--){const b=gB(x,y,z);
-    if(b!==AIR&&b!==WATERB&&b!==LEAF&&b!==LOG&&!isTorch(b))return y;}
+    if(b!==AIR&&!isWater(b)&&b!==LEAF&&b!==LOG&&!isTorch(b))return y;}
   return 0;}
 
 // ---- decoration: trees + villages (deterministic per chunk) ----
@@ -840,11 +867,21 @@ function buildChunkMesh(c){
     for(let f=0;f<6;f++){
       const fc=FACES[f],nx=wx+fc.n[0],ny=y+fc.n[1],nz=wz+fc.n[2],nb=gB(nx,ny,nz);
       const lt=LMAP?(LMAP.get(nx+','+ny+','+nz)||0)/15:0; // face brightness = light in the cell it faces, like vanilla
-      if(b===WATERB){
-        if(nb!==AIR)continue;
+      if(isWater(b)){
+        // render height: a source is 14/16 tall (vanilla) unless water sits directly
+        // above (then it's a full cube); flowing water is shorter with its level
+        const wTop=(bx,by,bz,bb)=>isWater(gB(bx,by+1,bz))?1:(bb===WATERB?.875:wLevel(bb)/8*.85+.06);
+        const hTop=wTop(wx,y,wz,b);
+        let draw=false;
+        if(f===3)draw=!isWater(gB(wx,y+1,wz));           // top surface
+        else if(f===2)draw=(nb===AIR);                   // underside (waterfall / overhang)
+        else{                                            // side: air, OR a SHORTER water neighbour (fills the step — no see-through)
+          if(nb===AIR)draw=true;
+          else if(isWater(nb))draw=wTop(nx,ny,nz,nb)<hTop-1e-3;}
+        if(!draw)continue;
         const n0=WP.length/3;
         for(const co of fc.c){
-          WP.push(wx+co[0],y+co[1],wz+co[2]);WN.push(...fc.n);WU.push(co[3],co[4]);}
+          WP.push(wx+co[0],y+co[1]*hTop,wz+co[2]);WN.push(...fc.n);WU.push(co[3],co[4]);}
         WI.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
       }else if(isDoor(b)){
         const open=b>=DOOROL;
@@ -974,28 +1011,28 @@ let openFurnKey=null;                            // furnace position the GUI is 
 function updateFurnaces(dt){
   for(const k in furnaces){
     const s=furnaces[k];
+    const p=k.split(',').map(Number);
+    const blk=gB(p[0],p[1],p[2]);
+    if(blk!==FURN&&blk!==FURNL){delete furnaces[k];continue;} // block gone: drop the stale entry
     const out=s.i&&SMELT[s.i.b];
     const can=out&&(!s.o||(s.o.b===out&&s.o.count<stackMax(out)));
-    if(s.burn<=0&&can&&s.f&&FUEL[s.f.b]){        // ignite a fuel unit
+    if(s.burn<=0&&can&&s.f&&FUEL[s.f.b]){        // ignite a fuel unit — only when there's something to smelt
       s.burn=s.burnMax=FUEL[s.f.b];
       if(--s.f.count<=0)s.f=null;
-      const p=k.split(',').map(Number);
-      if(gB(p[0],p[1],p[2])===FURN){setBlock(p[0],p[1],p[2],FURNL);flush();}
       if(invOpen&&openFurnKey===k)refreshInv();}
-    if(s.burn>0){
-      s.burn-=dt;
-      if(can){
-        s.cook+=dt;
-        if(s.cook>=10){                          // vanilla: 200 ticks per smelt
-          s.cook=0;
-          if(s.o)s.o.count++;else s.o=stack(out,1);
-          if(--s.i.count<=0)s.i=null;
-          if(invOpen&&openFurnKey===k)refreshInv();}}
-      else s.cook=Math.max(0,s.cook-dt*2);
-      if(s.burn<=0){                             // fire went out
-        const p=k.split(',').map(Number);
-        if(gB(p[0],p[1],p[2])===FURNL){setBlock(p[0],p[1],p[2],FURN);flush();}}}
-    else s.cook=Math.max(0,s.cook-dt*2);}}
+    const lit=s.burn>0&&can;                     // FIRE SHOWS ONLY WHILE ACTUALLY SMELTING — an empty
+    if(lit){                                     // furnace never keeps burning (no leftover-fuel glow)
+      s.burn-=dt;                                // remaining fuel is frozen, not wasted, when idle
+      s.cook+=dt;
+      if(s.cook>=10){                            // vanilla: 200 ticks per smelt
+        s.cook=0;
+        if(s.o)s.o.count++;else s.o=stack(out,1);
+        if(--s.i.count<=0)s.i=null;
+        if(invOpen&&openFurnKey===k)refreshInv();}}
+    else s.cook=Math.max(0,s.cook-dt*2);         // no valid smelt: progress decays back
+    const want=lit?FURNL:FURN;                   // keep the block's lit-state in lockstep with the fire,
+    if(blk!==want){setBlock(p[0],p[1],p[2],want);flush(); // so a reload can't leave it stuck glowing
+      if(invOpen&&openFurnKey===k)refreshInv();}}}
 function spillFurnace(x,y,z){                    // mining a furnace hands its contents back
   const s=furnaces[fkey(x,y,z)];if(!s)return;
   for(const st of[s.i,s.f,s.o])if(st)addStack(st);
@@ -1006,7 +1043,7 @@ function spillFurnace(x,y,z){                    // mining a furnace hands its c
 // nothing planted slowly reverts to dirt; trampling and covering also revert it
 const farmWet=(x,y,z)=>{
   for(let dy=0;dy<=1;dy++)for(let dx=-4;dx<=4;dx++)for(let dz=-4;dz<=4;dz++)
-    if(gB(x+dx,y+dy,z+dz)===WATERB)return true;
+    if(isWater(gB(x+dx,y+dy,z+dz)))return true; // any water counts, flowing included — vanilla
   return false;};
 let farmT=0;
 function updateFarms(dt){
@@ -1032,16 +1069,51 @@ function trySleep(){
     m.pos.distanceTo(player.pos)<8&&(m.type!=='spider'||m.aggroT>0||daylight<.5));
   if(near){flashMsg('You may not rest now; there are monsters nearby');return;}
   sleepT=0;play('uiClick',.3);}
-function flowWater(x,y,z){
-  const q=[[x,y,z]];let n=0;
-  while(q.length&&n<80){
-    const[cx,cy,cz]=q.shift();
-    if(gB(cx,cy,cz)!==AIR)continue;
-    const near=[[0,1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
-      .some(dd=>gB(cx+dd[0],cy+dd[1],cz+dd[2])===WATERB);
-    if(!near)continue;
-    setBlock(cx,cy,cz,WATERB);n++;
-    q.push([cx,cy-1,cz],[cx+1,cy,cz],[cx-1,cy,cz],[cx,cy,cz+1],[cx,cy,cz-1]);}}
+// ---- water physics, vanilla-style. Every changed water cell (and its neighbours)
+// is queued; a settling pass re-derives each cell from its surroundings until the
+// pool is stable. Rules ported from Minecraft's LiquidBlock:
+//  - a SOURCE (level 8) is permanent unless bucketed/replaced
+//  - flowing water takes level = (max neighbour inflow) - 1; the cell below a
+//    source/flow becomes a falling flow (level 7); with no inflow it dries to air
+//  - INFINITE SOURCE: a flowing cell touching >=2 horizontal source blocks and
+//    resting on solid/water becomes a new source (the 2x2 / 1x3 refill trick)
+const waterQ=new Set();
+const wq=(x,y,z)=>waterQ.add(x+','+y+','+z);
+function queueWater(x,y,z){                       // enqueue a cell + everything that could react to it
+  wq(x,y,z);
+  for(const[dx,dy,dz]of[[0,1,0],[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]])wq(x+dx,y+dy,z+dz);}
+function flowWater(x,y,z){queueWater(x,y,z);}     // kept as the name the rest of the code calls
+let waterAcc=0;
+function updateWater(dt){
+  if((waterAcc+=dt)<.25||!waterQ.size)return;     // vanilla water ticks ~4x/s
+  waterAcc=0;
+  const batch=[...waterQ];waterQ.clear();
+  let changed=false;
+  for(const key of batch){
+    const[x,y,z]=key.split(',').map(Number);
+    const b=gB(x,y,z);
+    if(b===WATERB)continue;                        // a source never self-updates (only bucket/replace clears it)
+    if(!isWater(b)&&b!==AIR)continue;              // solid block: nothing to do
+    const above=gB(x,y+1,z);
+    let want;                                      // the level this cell SHOULD be (0 = air)
+    if(isWater(above)){want=7;}                    // water directly above -> falling column, always level 7
+    else{
+      // strongest horizontal inflow -> this cell is one weaker
+      let inflow=0,srcCount=0;
+      for(const[dx,dz]of[[1,0],[-1,0],[0,1],[0,-1]]){
+        const nb=gB(x+dx,y,z+dz),nl=wLevel(nb);
+        if(nl===8)srcCount++;
+        if(nl>0)inflow=Math.max(inflow,nl-1);}
+      // infinite-source rule: flowing, >=2 adjacent sources, on solid/water below
+      const below=gB(x,y-1,z);
+      if(srcCount>=2&&(isSolid(below)||isWater(below))){want=8;}
+      else want=inflow;}
+    const cur=b===AIR?0:wLevel(b);
+    if(want===cur)continue;
+    const nid=want>=8?WATERB:want>0?WFLOW1+(want-1):AIR;
+    setBlock(x,y,z,nid);changed=true;
+    queueWater(x,y,z);}                            // re-examine neighbours next tick
+  if(changed)flush();}
 // ---- chunk streaming around the player ----
 function updateChunks(){
   const pcx=Math.floor(player.pos.x/CH),pcz=Math.floor(player.pos.z/CH);
@@ -1112,7 +1184,8 @@ function updateSky(dt){
   stars.material.opacity=1-daylight;stars.position.copy(player.pos);
     clouds.position.x=player.pos.x;clouds.position.z=player.pos.z;
   for(const c of clouds.children){c.position.x+=dt*1.2;if(c.position.x>128)c.position.x-=256;}
-  waterTex.offset.y=(performance.now()*.00004)%1;
+  const wf=Math.floor(performance.now()/100)%WFRAMES; // vanilla frametime 2 = 100ms/frame (3.2s loop)
+  if(wf!==waterFrame){waterFrame=wf;drawWaterFrame(wf);waterTex.needsUpdate=true;} // redraw the tile + rebuild mipmaps
   const hh=(Math.floor(dayFrac*24)+6)%24;
   document.getElementById('clock').textContent=
     (daylight>.5?'☀ ':'☾ ')+String(hh).padStart(2,'0')+':00';}
@@ -1370,7 +1443,7 @@ function raycast(){
     const bx=Math.floor(q.x),by=Math.floor(q.y),bz=Math.floor(q.z);
     const key=bx+','+by+','+bz;
     if(key!==last){const b=gB(bx,by,bz);
-      if(b!==AIR&&b!==WATERB)return{hit:[bx,by,bz],prev};
+      if(b!==AIR&&!isWater(b))return{hit:[bx,by,bz],prev};
       prev=[bx,by,bz];last=key;}}
   return null;}
 renderer.domElement.addEventListener('mousedown',e=>{
@@ -1401,12 +1474,35 @@ renderer.domElement.addEventListener('mousedown',e=>{
         player.swingT=SWING_DUR;
         play('digGravel',.9,.8);                       // vanilla item.hoe.till = the gravel dig family
         return;}}
+    // ---- buckets: scoop a SOURCE with an empty bucket / pour one out with a full one ----
+    const bit=hotbar[sel];
+    if(bit&&bit.b===BUCKET_I){
+      updateAim();                                 // rays IGNORE water, so scan for the first water cell
+      for(let t=0;t<5.2;t+=.05){
+        const q=aimOrigin.clone().addScaledVector(aimDir,t);
+        const wx2=Math.floor(q.x),wy2=Math.floor(q.y),wz2=Math.floor(q.z),wb=gB(wx2,wy2,wz2);
+        if(isSolid(wb))break;
+        if(wb===WATERB){                           // only SOURCE blocks are scoopable, like vanilla
+          setBlock(wx2,wy2,wz2,AIR);queueWater(wx2,wy2,wz2);flush();
+          bit.count>1?(bit.count--,addStack(stack(WBUCKET_I,1))||addDrop(WBUCKET_I)):hotbar[sel]=stack(WBUCKET_I,1);
+          drawHotbar();player.swingT=SWING_DUR;
+          play('splash',.5,1);return;}
+        if(isWater(wb))break;}                     // flowing water can't be scooped — vanilla
+      return;}                                     // empty bucket used on dry land: nothing (like vanilla)
+    if(bit&&bit.b===WBUCKET_I){
+      const r2=raycast();if(!r2||!r2.prev)return;
+      const[px2,py2,pz2]=r2.prev;
+      if(py2<0||py2>=H||isSolid(gB(px2,py2,pz2)))return;
+      setBlock(px2,py2,pz2,WATERB);queueWater(px2,py2,pz2);flush(); // pour: places a SOURCE
+      hotbar[sel]=stack(BUCKET_I,1);
+      drawHotbar();player.swingT=SWING_DUR;
+      play('splash',.6,1);return;}
     const eit=hotbar[sel];                       // food in hand + room in the belly: hold to eat, like vanilla
     if(eit&&isFood(eit.b)&&eit.count>0&&(Math.round(player.food)<20||isCreative())){eating=true;eatT=0;return;}
                                                  // rounded like the HUD: a bar that LOOKS full refuses food
     if(!r||!r.prev)return;
     const[x,y,z]=r.prev;if(y<0||y>=H)return;
-    const b=gB(x,y,z);if(b!==AIR&&b!==WATERB)return;
+    const b=gB(x,y,z);if(b!==AIR&&!isWater(b))return;
     const it=hotbar[sel];
     if(!it||(it.b>=STICK_I&&it.b!==TORCH&&it.b!==FURN)||(!isCreative()&&it.count<=0))return; // tools/sticks/foods aren't placeable
     if(it.b===TORCH){placeTorch(r,it);return;}   // torches have no collision box: even your own
@@ -1417,7 +1513,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
       const fwx=-Math.sin(player.yaw),fwz=-Math.cos(player.yaw);   // block further along the facing
       const ddx=Math.abs(fwx)>Math.abs(fwz)?Math.sign(fwx):0,ddz=Math.abs(fwx)>Math.abs(fwz)?0:Math.sign(fwz);
       const hb=gB(x+ddx,y,z+ddz);
-      if(hb!==AIR&&hb!==WATERB){flashMsg('No room for the bed');return;}
+      if(hb!==AIR&&!isWater(hb)){flashMsg('No room for the bed');return;}
       if(!isCreative()&&--it.count<=0)hotbar[sel]=null;
       drawHotbar();
       setBlock(x,y,z,BEDF);setBlock(x+ddx,y,z+ddz,BEDH);flush();
@@ -1426,7 +1522,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
       return;}
     if(!isCreative()&&--it.count<=0)hotbar[sel]=null; // last one placed: slot frees up
     drawHotbar();
-    setBlock(x,y,z,it.b);flush();
+    setBlock(x,y,z,it.b);queueWater(x,y,z);flush(); // placing into/next to water: the pool re-settles around it
     player.swingT=SWING_DUR;   // placing swings the arm (1st-person viewmodel + 3rd-person body), like vanilla
     if(!play(matFor(it.b).dig,.7,.8))SFX.place();}}); // vanilla: place sound = the block's dig family at fixed 0.8 pitch
 addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;if(e.button===2)eating=false;});
@@ -1506,14 +1602,14 @@ function updateThirdPerson(eyeY,moveSpd){
 }
 function updatePlayer(dt){
   const fx=Math.floor(player.pos.x),fz=Math.floor(player.pos.z);
-  const feetWater=gB(fx,Math.floor(player.pos.y+.4),fz)===WATERB;
-  const headWater=gB(fx,Math.floor(player.pos.y+1.4),fz)===WATERB;
+  const feetWater=isWater(gB(fx,Math.floor(player.pos.y+.4),fz));
+  const headWater=isWater(gB(fx,Math.floor(player.pos.y+1.4),fz));
   // fractional submersion 0..1 — how deep the body sits below the local water surface
   // (scan the column overlapping the body, so player-made pools work too). Water forces
   // scale with this instead of switching on/off at a block edge, which kept the camera smooth
   let surfY=-1;
   for(let y=Math.floor(player.pos.y+1.4);y>=Math.floor(player.pos.y);y--)
-    if(gB(fx,y,fz)===WATERB){surfY=y+1;break;}
+    if(isWater(gB(fx,y,fz))){surfY=y+1;break;}
   const sub=surfY<0?0:Math.min(1,(surfY-player.pos.y)/1.4);
   const inWater=sub>0;
   let f=0,s=0;
@@ -2091,7 +2187,7 @@ class Mob{
           const d=this.pos.distanceTo(player.pos);
           if(d<14)play('spiderStep',.4/(1+d*.3));}}}
     const feet=gB(Math.floor(this.pos.x),Math.floor(this.pos.y+.2),Math.floor(this.pos.z));
-    if(feet===WATERB)this.vy=Math.min(this.vy+30*dt,1.5);
+    if(isWater(feet))this.vy=Math.min(this.vy+30*dt,1.5);
     else this.vy-=22*dt;
     if(this.type==='chicken'&&this.vy<-1.4)this.vy=-1.4; // wings: drift down slowly, fall-immune
     this.pos.y+=this.vy*dt;this.grounded=false;
@@ -2425,6 +2521,9 @@ const BNAME={[GRASS]:'Grass Block',[DIRT]:'Dirt',[STONE]:'Stone',[SAND]:'Sand',[
   [SSHOVEL_I]:'Stone Shovel',[SHOE_I]:'Stone Hoe',
   [ISWORD_I]:'Iron Sword',[IAXE_I]:'Iron Axe',[IPICK_I]:'Iron Pickaxe',
   [ISHOVEL_I]:'Iron Shovel',[IHOE_I]:'Iron Hoe',
+  [BUCKET_I]:'Bucket',[WBUCKET_I]:'Water Bucket',
+  [WFLOW1]:'Water',[WFLOW1+1]:'Water',[WFLOW1+2]:'Water',[WFLOW1+3]:'Water',
+  [WFLOW1+4]:'Water',[WFLOW1+5]:'Water',[WFLOW7]:'Water',
   [STICK_I]:'Stick',[WSWORD_I]:'Wooden Sword',[WAXE_I]:'Wooden Axe',
   [WPICK_I]:'Wooden Pickaxe',[WSHOVEL_I]:'Wooden Shovel',[WHOE_I]:'Wooden Hoe'};
 const DEFAULT_HOTBAR=[GRASS,DIRT,STONE,SAND,LOG,LEAF,PLANK,COBBLE];
@@ -2501,7 +2600,9 @@ Object.assign(ITEM_PALS,{
   [IAXE_I]:{0:'#444444',1:'#ffffff',2:'#c1c1c1',3:'#d8d8d8',4:'#493615',5:'#684e1e',6:'#181818',7:'#969696',8:'#281e0b',9:'#896727'},
   [IPICK_I]:{0:'#444444',1:'#ffffff',2:'#d8d8d8',3:'#c1c1c1',4:'#493615',5:'#684e1e',6:'#181818',7:'#896727',8:'#281e0b'},
   [ISHOVEL_I]:{0:'#444444',1:'#181818',2:'#ffffff',3:'#c1c1c1',4:'#d8d8d8',5:'#493615',6:'#896727',7:'#281e0b',8:'#684e1e'},
-  [IHOE_I]:{0:'#444444',1:'#ffffff',2:'#d8d8d8',3:'#181818',4:'#c1c1c1',5:'#493615',6:'#684e1e',7:'#896727'}});
+  [IHOE_I]:{0:'#444444',1:'#ffffff',2:'#d8d8d8',3:'#181818',4:'#c1c1c1',5:'#493615',6:'#684e1e',7:'#896727'},
+  [BUCKET_I]:{0:'#353535',1:'#727272',2:'#969696',3:'#a8a8a8',4:'#5f5f5f',5:'#545454',6:'#d8d8d8',7:'#ffffff'},
+  [WBUCKET_I]:{0:'#353535',1:'#787878',2:'#989898',3:'#234fcc',4:'#2e58d3',5:'#446fe9',6:'#345fda',7:'#5a82f3',8:'#d8d8d8',9:'#a8a8a8',a:'#727272',b:'#969696',c:'#ffffff'}});
 Object.assign(ITEM_ART,{
   [SSWORD_I]:['.............000','............0123','...........01213','..........01213.','.........01213..','........01213...','..00...04213....','..050.04243.....','...0434143......','...044543.......','....0503........','...673003.......','..689.3303......','0079....33......','053.............','333.............'],
   [SAXE_I]:['................','.........00.....','........0110....','.......01230....','......0122245...','......6132728...','.......6642726..','........458226..','.......498.66...','......458.......','.....458........','....498.........','...458..........','..498...........','..88............','................'],
@@ -2514,7 +2615,9 @@ Object.assign(ITEM_ART,{
   [IAXE_I]:['................','.........00.....','........0110....','.......01230....','......0122245...','......6132728...','.......6642726..','........458226..','.......498.66...','......458.......','.....458........','....498.........','...458..........','..498...........','..88............','................'],
   [IPICK_I]:['................','................','......00000.....','.....012332045..','......06663378..','..........4236..','.........458326.','........478.636.','.......458..636.','......478...626.','.....458....616.','....478......6..','...458..........','..478...........','..88............','................'],
   [ISHOVEL_I]:['................','................','...........001..','..........02231.','.........024321.','........0243421.','.........53421..','........56721...','.......567.1....','......587.......','.....567........','....587.........','..5567..........','..567...........','...77...........','................'],
-  [IHOE_I]:['................','.......000......','......01220.....','.......3342056..','.........34473..','..........5243..','.........5633...','........573.....','.......563......','......573.......','.....563........','....573.........','...563..........','..573...........','..33............','................']});
+  [IHOE_I]:['................','.......000......','......01220.....','.......3342056..','.........34473..','..........5243..','.........5633...','........573.....','.......563......','......573.......','.....563........','....573.........','...563..........','..573...........','..33............','................'],
+  [BUCKET_I]:['................','.....000000.....','...0012223300...','..011444111210..','..045554111140..','..000554411000..','..063000000120..','..066663321120..','..066763321130..','..036763321130..','..016763321120..','...0666332120...','...0366322120...','....03632120....','.....000000.....','................'],
+  [WBUCKET_I]:['................','.....000000.....','...0011222200...','..013456644310..','..035775676530..','..000365563000..','..089000000ab0..','..0888899baab0..','..088c899baa90..','..098c899baa90..','..0a8c899baab0..','...088899bab0...','...09889bbab0...','....0989bab0....','.....000000.....','................']});
 function itemCanvas(id){                       // shared by the hotbar icons and the 1st-person hand sprite
   const rows=ITEM_ART[id],c=document.createElement('canvas');c.width=c.height=16;
   const g=c.getContext('2d'),pal=ITEM_PALS[id]||ITEM_PAL;
@@ -2672,7 +2775,8 @@ const RECIPES=[
   [['III','.S.','.S.'],IPICK_I,1],
   [['II','IS','.S'],IAXE_I,1],
   [['I','S','S'],ISHOVEL_I,1],
-  [['II','.S','.S'],IHOE_I,1]];
+  [['II','.S','.S'],IHOE_I,1],
+  [['I.I','.I.'],BUCKET_I,1]];      // vanilla bucket: 3 iron ingots in a V (crafting table)
 function matchCraft(slots,w){       // w = grid width (2 or 3), slots is w*w long
   let x0=w,x1=-1,y0=w,y1=-1;
   for(let y=0;y<w;y++)for(let x=0;x<w;x++)if(slots[y*w+x]){
@@ -2923,7 +3027,7 @@ const isHafted=b=>b===WAXE_I||b===WPICK_I||b===WSHOVEL_I||b===WHOE_I
   ||b===SAXE_I||b===SPICK_I||b===SSHOVEL_I||b===SHOE_I
   ||b===IAXE_I||b===IPICK_I||b===ISHOVEL_I||b===IHOE_I;
 const upright=b=>isHafted(b)||b===TORCH||(b>=FLESH_I&&b<=MUTC_I)
-  ||b===RAWIRON_I||b===IRONING_I; // upright items share the tool pose —
+  ||b===RAWIRON_I||b===IRONING_I||b===BUCKET_I||b===WBUCKET_I; // upright items share the tool pose —
                                          // vanilla's torch/food items (item/generated) use the
                                          // identical [0,-90,25] first-person transform
 const holdCache={};
@@ -3133,6 +3237,15 @@ $('bQuitYes').onclick=()=>{                       // "Yes" — actually close th
   window.open('','_self');window.close();
   setTimeout(()=>{$('quitTitle').textContent='Your browser blocked closing the tab — please close it manually.';},150);};
 $('bQuitNo').onclick=closeQuit;
+$('bLobby').onclick=()=>{                         // save EVERYTHING and return to the lobby (keeps the world)
+  snapshotWorld();                               // persists edits (incl. villager houses), inventory, furnaces, time — the full save
+  inGame=false;quitOpen=false;quitEl.classList.remove('show');
+  if(invOpen)closeInv();
+  if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen();
+  if(document.pointerLockElement)document.exitPointerLock();
+  curWorld=null;                                 // deselect; the world stays saved in the worlds list
+  infoEl.style.display='none';
+  showScreen(menuEl);startMenuMusic();play('uiClick',.4);};
 $('bExitFs').onclick=()=>{                        // leave fullscreen (releases the keyboard lock) and dismiss
   if(document.exitFullscreen)document.exitFullscreen();
   quitOpen=false;quitEl.classList.remove('show');play('uiClick',.4);};
@@ -3209,6 +3322,11 @@ function playWorld(w){
     worldEdits=(w.save&&w.save.edits)||{};
     for(const k in furnaces)delete furnaces[k];      // restore this world's furnaces
     Object.assign(furnaces,(w.save&&w.save.furn)||{});
+    for(const ek in worldEdits){                     // any lit-furnace BLOCK with no state entry (old saves)
+      const ch=worldEdits[ek];                       // gets a dummy so updateFurnaces can un-stick it
+      for(const pk in ch)if(ch[pk]===FURNL){
+        const[px,py,pz]=pk.split(',').map(Number),fk=fkey(px,py,pz);
+        if(!furnaces[fk])furnaces[fk]={i:null,f:null,o:null,burn:0,burnMax:0,cook:0};}}
     resetWorld(w.seed);
     resetInv();
     if(w.save){                                 // resume exactly where the last session ended
@@ -3286,7 +3404,7 @@ function tick(){
     updateChunks();
     updateSky(dt);updatePlayer(dt);updateMobs(dt);
     updateMining(dt);updateEating(dt);
-    updateFurnaces(dt);updateFurnGUI();updateFarms(dt);
+    updateFurnaces(dt);updateFurnGUI();updateFarms(dt);updateWater(dt);
     updateParticles(dt);updateTorchFx(dt);
     updateHighlight();
     if(sleepT>=0){                             // sleeping: fade to black, wake at sunrise, fade back
