@@ -783,7 +783,7 @@ const FACES=[
  {n:[0,0,-1],c:[[1,0,0,0,0],[0,0,0,1,0],[1,1,0,0,1],[0,1,0,1,1]]},
  {n:[0,0,1], c:[[0,0,1,0,0],[1,0,1,1,0],[0,1,1,0,1],[1,1,1,1,1]]}];
 const SHADE=[.8,.8,.55,1,.7,.7];
-function tileFor(b,f){switch(b){
+function tileFor(b,f,front){switch(b){
   case GRASS:return f===3?0:(f===2?2:1);
   case DIRT:return 2;case STONE:return 3;case SAND:return 4;
   case WOOL:return 16;
@@ -792,8 +792,11 @@ function tileFor(b,f){switch(b){
   case LEAF:return 7;case PLANK:return 8;
   case COBBLE:return 10;case GLASS:return 11;case COALORE:return 19;
   case CTABLE:return f===3?9:f===2?8:f<2?14:15;
-  case FURN:return(f===2||f===3)?21:f<2?22:23;   // stone top+bottom, riveted sides, mouth front
-  case FURNL:return(f===2||f===3)?21:f<2?22:24;  // lit: the mouth glows (vanilla furnace_front_on)
+  // furnace: stone top+bottom, riveted sides, and the mouth on ONE face only (front).
+  // `front` is the face index (0/1/4/5) that faces the player who placed it; every
+  // other vertical face shows the plain side, so there's no second mouth on the back.
+  case FURN:return(f===2||f===3)?21:f===front?23:22;
+  case FURNL:return(f===2||f===3)?21:f===front?24:22;  // lit: the mouth glows (vanilla furnace_front_on)
   case FARM:return f===3?25:2;                   // tilled top, dirt sides/bottom, like vanilla
   case FARMW:return f===3?26:2;                  // moist: water-soaked furrows
   case IRONORE:return 27;}
@@ -906,7 +909,9 @@ function buildChunkMesh(c){
         I.push(n0,n0+1,n0+2,n0+2,n0+1,n0+3);
       }else{
         if(!(transp(nb)&&nb!==b))continue;
-        const t=tileFor(b,f),col=t%AT,row=(t/AT)|0,n0=P.length/3,sh=SHADE[f];
+        // furnaces carry a facing (stored in the furnace state); default south (+z=f5)
+        const front=(b===FURN||b===FURNL)?((furnaces[wx+','+y+','+wz]||0).front??5):-1;
+        const t=tileFor(b,f,front),col=t%AT,row=(t/AT)|0,n0=P.length/3,sh=SHADE[f];
         for(const co of fc.c){
           P.push(wx+co[0],y+co[1],wz+co[2]);N.push(...fc.n);
           U.push((col+co[3])/AT,1-(row+(1-co[4]))/AT);CL.push(sh,sh,sh);TL.push(lt);}
@@ -1019,23 +1024,28 @@ function updateFurnaces(dt){
     if(blk!==FURN&&blk!==FURNL){delete furnaces[k];continue;} // block gone: drop the stale entry
     const out=s.i&&SMELT[s.i.b];
     const can=out&&(!s.o||(s.o.b===out&&s.o.count<stackMax(out)));
-    if(s.burn<=0&&can&&s.f&&FUEL[s.f.b]){        // ignite a fuel unit — only when there's something to smelt
+    // ignite ONE fuel unit — only when there's something to smelt and the fire is out
+    if(s.burn<=0&&can&&s.f&&FUEL[s.f.b]){
       s.burn=s.burnMax=FUEL[s.f.b];
       if(--s.f.count<=0)s.f=null;
       if(invOpen&&openFurnKey===k)refreshInv();}
-    const lit=s.burn>0&&can;                     // FIRE SHOWS ONLY WHILE ACTUALLY SMELTING — an empty
-    s.lit=lit;                                   // the GUI flame gauge reads this, so it can't sit lit while idle
-    if(lit){                                     // furnace never keeps burning (no leftover-fuel glow)
-      s.burn-=dt;                                // remaining fuel is frozen, not wasted, when idle
-      s.cook+=dt;
-      if(s.cook>=10){                            // vanilla: 200 ticks per smelt
-        s.cook=0;
-        if(s.o)s.o.count++;else s.o=stack(out,1);
-        if(--s.i.count<=0)s.i=null;
-        if(invOpen&&openFurnKey===k)refreshInv();}}
-    else s.cook=Math.max(0,s.cook-dt*2);         // no valid smelt: progress decays back
-    const want=lit?FURNL:FURN;                   // keep the block's lit-state in lockstep with the fire,
-    if(blk!==want){setBlock(p[0],p[1],p[2],want);flush(); // so a reload can't leave it stuck glowing
+    // vanilla: once lit, the fuel burns down CONTINUOUSLY to completion — the fire
+    // stays on for the whole burn time even after the food is done (leftover fuel is
+    // spent, not saved). Only when burn hits 0 does the furnace go dark.
+    if(s.burn>0){
+      s.burn-=dt;
+      if(can){                                   // there's a valid item: advance the smelt
+        s.cook+=dt;
+        if(s.cook>=10){                          // vanilla: 200 ticks per item
+          s.cook=0;
+          if(s.o)s.o.count++;else s.o=stack(out,1);
+          if(--s.i.count<=0)s.i=null;
+          if(invOpen&&openFurnKey===k)refreshInv();}}
+      else s.cook=Math.max(0,s.cook-dt*2);       // no item: fire still burns, cook progress decays
+    }else s.cook=Math.max(0,s.cook-dt*2);
+    s.lit=s.burn>0;                              // fire = fuel still burning (regardless of input), like vanilla
+    const want=s.lit?FURNL:FURN;                 // block lit-state stays in lockstep with the fire
+    if(blk!==want){setBlock(p[0],p[1],p[2],want);flush();
       if(invOpen&&openFurnKey===k)refreshInv();}}}
 function spillFurnace(x,y,z){                    // mining a furnace hands its contents back
   const s=furnaces[fkey(x,y,z)];if(!s)return;
@@ -1528,7 +1538,12 @@ renderer.domElement.addEventListener('mousedown',e=>{
       return;}
     if(!isCreative()&&--it.count<=0)hotbar[sel]=null; // last one placed: slot frees up
     drawHotbar();
-    setBlock(x,y,z,it.b);queueWater(x,y,z);flush(); // placing into/next to water: the pool re-settles around it
+    setBlock(x,y,z,it.b);queueWater(x,y,z);
+    if(it.b===FURN){                               // the mouth faces the player who placed it, like vanilla
+      const fx=Math.sin(player.yaw),fz=Math.cos(player.yaw);   // direction from furnace back toward the player
+      furnaceAt(x,y,z).front=Math.abs(fx)>Math.abs(fz)?(fx>0?1:0):(fz>0?5:4); // pick the dominant cardinal face (0/1/4/5)
+    }
+    flush(); // placing into/next to water: the pool re-settles around it
     player.swingT=SWING_DUR;   // placing swings the arm (1st-person viewmodel + 3rd-person body), like vanilla
     if(!play(matFor(it.b).dig,.7,.8))SFX.place();}}); // vanilla: place sound = the block's dig family at fixed 0.8 pitch
 addEventListener('mouseup',e=>{if(e.button===0)leftDown=false;if(e.button===2)eating=false;});
@@ -2543,7 +2558,7 @@ function makeBlockIcon(b){
   const c=document.createElement('canvas');c.width=c.height=N;
   const x=c.getContext('2d');x.imageSmoothingEnabled=false;
   const face=(f,m,sh)=>{
-    const t=tileFor(b,f),sx=(t%AT)*TS,sy=((t/AT)|0)*TS;
+    const t=tileFor(b,f,4),sx=(t%AT)*TS,sy=((t/AT)|0)*TS; // front=4: the icon's right visible face shows the furnace mouth
     x.setTransform(...m);
     x.drawImage(atlasC,sx,sy,TS,TS,0,0,TS,TS);
     if(sh){x.fillStyle='rgba(0,0,30,'+sh+')';x.fillRect(0,0,TS,TS);}
