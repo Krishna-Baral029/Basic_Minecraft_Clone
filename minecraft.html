@@ -556,6 +556,8 @@ const WFLOW1=60,WFLOW7=66;                       // ids 60..66 = levels 1..7
 const isWater=b=>b===WATERB||(b>=WFLOW1&&b<=WFLOW7);
 const wLevel=b=>b===WATERB?8:b>=WFLOW1&&b<=WFLOW7?b-WFLOW1+1:0;
 const FOOD_PTS={[FLESH_I]:4,[EYE_I]:2,[PORK_I]:3,[PORKC_I]:8,[CHICK_I]:2,[CHICKC_I]:6,[MUT_I]:2,[MUTC_I]:6}; // hunger points, vanilla-exact
+// vanilla saturation restored per food = hungerPts * satModifier * 2 (rounded to the wiki's values)
+const FOOD_SAT={[FLESH_I]:.8,[EYE_I]:3.2,[PORK_I]:1.8,[PORKC_I]:12.8,[CHICK_I]:1.2,[CHICKC_I]:7.2,[MUT_I]:1.2,[MUTC_I]:9.6};
 const isFood=b=>FOOD_PTS[b]!==undefined;
 const SMELT={[PORK_I]:PORKC_I,[CHICK_I]:CHICKC_I,[MUT_I]:MUTC_I,     // furnace recipes: raw -> cooked
   [RAWIRON_I]:IRONING_I};                                            // ...and raw iron -> iron ingot
@@ -1253,18 +1255,70 @@ const SOUND_URLS={
 const loadedSnd={};
 for(const k in SOUND_URLS)
   loadedSnd[k]=SOUND_URLS[k].map(f=>{const a=new Audio(SND_DIR+f);a.preload='auto';return a;});
-function play(k,vol,rate){const arr=loadedSnd[k];
-  if(!arr||!arr.length)return false;
+function play(k,vol,rate){
+  const urls=SOUND_URLS[k];if(!urls||!urls.length)return false;
+  const url=SND_DIR+urls[(Math.random()*urls.length)|0];
+  const buf=_sndBuf[url];
+  if(buf){                                     // decoded: play INSTANTLY via Web Audio — no load-on-click lag
+    const ac=audio();if(ac.state==='suspended')ac.resume();
+    const src=ac.createBufferSource();src.buffer=buf;
+    if(rate){src.playbackRate.value=rate;}      // real pitch shift, like MC's random pitch
+    const g=ac.createGain();g.gain.value=Math.min(1,Math.max(0,vol));
+    src.connect(g);g.connect(ac.destination);src.start();return true;}
+  loadSndBuf(url);                             // not decoded yet: warm it for next time...
+  const arr=loadedSnd[k];if(!arr||!arr.length)return false; // ...and use the HTML5 element this once
   const a=arr[(Math.random()*arr.length)|0];
   const c=a.cloneNode();c.volume=Math.min(1,Math.max(0,vol));
-  if(rate){c.playbackRate=rate;c.preservesPitch=false;} // real pitch shift, like MC's random pitch
+  if(rate){c.playbackRate=rate;c.preservesPitch=false;}
   c.play().catch(()=>{});return true;}
 const S=(k,vol,fb)=>{if(!play(k,vol))fb&&fb();};
+// ---- positional (stereo) audio, like vanilla: a sound pans LEFT/RIGHT and fades
+// with distance depending on where the source sits relative to where you're facing.
+// Uses Web Audio (decode once -> BufferSource -> StereoPanner -> Gain) so we get
+// true left/right panning that HTML5 <audio> can't do.
+const _sndBuf={};                                 // decoded AudioBuffer cache, keyed by file url
+function loadSndBuf(url){
+  if(_sndBuf[url]!==undefined)return Promise.resolve(_sndBuf[url]);
+  _sndBuf[url]=null;                              // mark in-flight so we don't double-fetch
+  return fetch(url).then(r=>r.arrayBuffer()).then(b=>audio().decodeAudioData(b))
+    .then(buf=>(_sndBuf[url]=buf)).catch(()=>{_sndBuf[url]=undefined;return null;});}
+// PRELOAD: decode the short, click-instant sounds right away so the FIRST menu clicks
+// fire with zero lag (the old delay was HTML5 <audio> loading the file on first play).
+// decodeAudioData works on a suspended context, so this runs before any user gesture.
+for(const k of['uiClick','pop','doorOpen','doorClose','stepGrass','stepStone','stepWood',
+    'digGravel','digStone','digWood','digGrass','glassBreak','stepCloth','eat','burp','orb'])
+  if(SOUND_URLS[k])for(const f of SOUND_URLS[k])loadSndBuf(SND_DIR+f);
+// resume the AudioContext on the very first pointer/key input (fires before the button's
+// own click handler), so even the first click plays its decoded buffer immediately
+const _warmAudio=()=>{const ac=audio();if(ac.state==='suspended')ac.resume();};
+addEventListener('pointerdown',_warmAudio,{capture:true});
+addEventListener('keydown',_warmAudio,{capture:true});
+function playAt(k,vol,rate,pos){                   // pos = THREE.Vector3 of the sound source (mob)
+  const urls=SOUND_URLS[k];if(!urls||!urls.length)return false;
+  const ac=audio();if(ac.state==='suspended')ac.resume();
+  const url=SND_DIR+urls[(Math.random()*urls.length)|0];
+  let pan=0,g=vol;
+  if(pos){
+    const dx=pos.x-player.pos.x,dz=pos.z-player.pos.z,dy=pos.y-(player.pos.y+1.4);
+    const d=Math.hypot(dx,dz,dy);
+    if(d>24)return true;                           // out of earshot, like MC's 16-block-ish range
+    const h=Math.hypot(dx,dz)||1e-3;               // horizontal distance drives the panning
+    // right vector for this yaw is (cos, -sin); pan = how far right the source is (-1 L .. +1 R)
+    pan=Math.max(-1,Math.min(1,(dx/h)*Math.cos(player.yaw)-(dz/h)*Math.sin(player.yaw)))*Math.min(1,h/2);
+    g=vol/(1+d*.16);}                              // distance falloff
+  loadSndBuf(url).then(buf=>{
+    if(!buf)return;
+    const src=ac.createBufferSource();src.buffer=buf;
+    if(rate){src.playbackRate.value=rate;}
+    const gain=ac.createGain();gain.gain.value=Math.min(1,Math.max(0,g));
+    if(ac.createStereoPanner){const p=ac.createStereoPanner();p.pan.value=pan;
+      src.connect(p);p.connect(gain);}else src.connect(gain); // pan node absent on ancient browsers
+    gain.connect(ac.destination);src.start();});
+  return true;}
 function mobSound(type,pos){
   const d=pos.distanceTo(player.pos);if(d>22)return;
-  const vol=.25/(1+d*.18);
-  // vanilla gives every ambient call a random pitch (0.9x-1.1x, ±20% for babies/variety)
-  if(!play(type,vol*3,.9+Math.random()*.2)){const fb=SFX[type];fb&&fb(vol);}}
+  // vanilla gives every ambient call a random pitch (0.9x-1.1x)
+  if(!playAt(type,.85,.9+Math.random()*.2,pos)){const fb=SFX[type];fb&&fb(.25/(1+d*.18));}}
 
 // ---- lobby music ----
 // +10% boost needs Web Audio, but on file:// a MediaElementSource is CORS-muted
@@ -1370,6 +1424,7 @@ function findSpawn(){                             // spiral out until clear dry 
 findSpawn();
 const player={pos:new THREE.Vector3(sx+.5,0,sz+.5),vel:new THREE.Vector3(),
   yaw:0,pitch:0,bodyYaw:0,onGround:false,hp:20,food:20,foodT:0,starveT:0,wasInWater:false,swimT:0,stepT:0,
+  saturation:5,exhaustion:0,foodTick:0, // vanilla hunger: hidden saturation buffer + exhaustion accumulator
   view:0,crouching:false,crouchAmt:0,walkPhase:0,armAge:0,swingT:0}; // view: 0=first, 1=third-back, 2=third-front; armAge=idle-bob phase; swingT=attack-swing timer (s)
   // bodyYaw = which way the torso points (chases movement); yaw = where the head/camera looks
 player.pos.y=groundH(sx,sz)+2;
@@ -1413,7 +1468,7 @@ function resetWorld(newSeed){                     // wipe everything, regen from
   mobs.length=0;
   findSpawn();
   player.pos.set(sx+.5,groundH(sx,sz)+2,sz+.5);
-  player.vel.set(0,0,0);player.yaw=0;player.pitch=0;player.hp=20;player.food=20;
+  player.vel.set(0,0,0);player.yaw=0;player.pitch=0;player.hp=20;player.food=20;player.saturation=5;player.exhaustion=0;
   spawn.copy(player.pos);
   dayFrac=.3;}
 function randomRespawn(){                          // drop in at fresh coords on dry land
@@ -1450,17 +1505,59 @@ function updateAim(){
   aimDir.set(-Math.sin(player.yaw)*cp,Math.sin(player.pitch),-Math.cos(player.yaw)*cp);
   const eye=1.62-player.crouchAmt*.35;               // eye drops when crouching, like vanilla
   aimOrigin.copy(player.pos).add(new THREE.Vector3(0,eye,0));}
+// Exact voxel traversal (Amanatides & Woo), not point sampling: the ray visits EVERY
+// cell it passes through in true order, so `prev` is always the exact face-adjacent
+// cell. The old 0.02-step sampler could cross a thin sliver of a cell between samples
+// near block edges — which broke vanilla clutch/bridge placing (sneaking at an edge
+// and aiming at the exposed side face of the support block only shows ~5° of face;
+// the sampler often resolved `prev` to the player's own feet cell instead of the gap,
+// and the self-overlap gate then silently swallowed the click).
 function raycast(){
   updateAim();
-  const dir=aimDir;
-  let prev=null,last=null;
-  for(let t=0;t<6;t+=.02){
-    const q=aimOrigin.clone().addScaledVector(dir,t);
-    const bx=Math.floor(q.x),by=Math.floor(q.y),bz=Math.floor(q.z);
-    const key=bx+','+by+','+bz;
-    if(key!==last){const b=gB(bx,by,bz);
-      if(b!==AIR&&!isWater(b))return{hit:[bx,by,bz],prev};
-      prev=[bx,by,bz];last=key;}}
+  const d=aimDir,o=aimOrigin,REACH=6;
+  let x=Math.floor(o.x),y=Math.floor(o.y),z=Math.floor(o.z);
+  const sx=Math.sign(d.x),sy=Math.sign(d.y),sz=Math.sign(d.z);
+  const tdx=Math.abs(1/d.x),tdy=Math.abs(1/d.y),tdz=Math.abs(1/d.z); // 1/0=Infinity: axis never stepped
+  let tmx=sx?(sx>0?x+1-o.x:o.x-x)*tdx:Infinity,   // ray distance to the next boundary on each axis
+      tmy=sy?(sy>0?y+1-o.y:o.y-y)*tdy:Infinity,
+      tmz=sz?(sz>0?z+1-o.z:o.z-z)*tdz:Infinity;
+  let prev=null;
+  for(let i=0;i<64;i++){
+    const b=gB(x,y,z);
+    if(b!==AIR&&!isWater(b))return{hit:[x,y,z],prev};
+    prev=[x,y,z];
+    if(tmx<tmy&&tmx<tmz){if(tmx>REACH)break;x+=sx;tmx+=tdx;}  // step through the nearest boundary
+    else if(tmy<tmz)    {if(tmy>REACH)break;y+=sy;tmy+=tdy;}
+    else                {if(tmz>REACH)break;z+=sz;tmz+=tdz;}}
+  return null;}
+// Bedrock-style "reach-around" bridge assist: sneaking at an edge and looking down
+// steeply lets a place-click extend the bridge FORWARD at foot level even though the
+// gap cell's faces aren't visible from above — how players sneak-bridge across the
+// void to the End on Bedrock (Java needs mods like Quark for this). Fires ONLY as a
+// fallback when normal face-targeted placement is impossible (the click would be
+// swallowed: obstructed by your own body, or aiming past the edge at nothing), and
+// only while crouching — so regular building is completely untouched.
+function reachAround(r){
+  if(!player.crouching)return null;                   // deliberate: sneak-bridging stance only
+  const steep=player.pitch<=-.55;                     // looking down more than ~31°
+  const p=player.pos;
+  const fwx=-Math.sin(player.yaw),fwz=-Math.cos(player.yaw);
+  const ddx=Math.abs(fwx)>Math.abs(fwz)?Math.sign(fwx):0,ddz=ddx?0:Math.sign(fwz); // facing, snapped to a cardinal
+  const yt=Math.floor(p.y-.02),yb=Math.max(0,Math.floor(p.y-.6));  // support layers, like the sneak edge check
+  // candidate support columns under the feet, most specific first: the heel corner
+  // (still over the block while the body overhangs the edge), then the centre column
+  for(const[cx,cz]of[[Math.floor(p.x-ddx*.3),Math.floor(p.z-ddz*.3)],
+                     [Math.floor(p.x),Math.floor(p.z)]]){
+    for(let by=yt;by>=yb;by--){
+      if(!solidAt(cx,by,cz))continue;                 // topmost solid here = the supporting block
+      // intent gate: EITHER looking down steeply, OR the crosshair is directly on this
+      // supporting block (unambiguous "extend my bridge" click at any downward angle)
+      if(!steep&&!(r&&r.hit&&r.hit[0]===cx&&r.hit[1]===by&&r.hit[2]===cz))break;
+      const tx=cx+ddx,tz=cz+ddz,tb=gB(tx,by,tz);
+      if(by<0||by>=H)break;
+      if(tb!==AIR&&!isWater(tb))break;                // forward cell already taken: no edge this way
+      if(tx+1>p.x-.3&&tx<p.x+.3&&tz+1>p.z-.3&&tz<p.z+.3&&by+1>p.y+.07&&by<p.y+1.8)break; // would clip the player (+.07: feet rest ~.05 below the surface)
+      return[tx,by,tz];}}
   return null;}
 renderer.domElement.addEventListener('mousedown',e=>{
   if(!inGame||invOpen||quitOpen)return;
@@ -1516,15 +1613,25 @@ renderer.domElement.addEventListener('mousedown',e=>{
     const eit=hotbar[sel];                       // food in hand + room in the belly: hold to eat, like vanilla
     if(eit&&isFood(eit.b)&&eit.count>0&&(Math.round(player.food)<20||isCreative())){eating=true;eatT=0;return;}
                                                  // rounded like the HUD: a bar that LOOKS full refuses food
-    if(!r||!r.prev)return;
-    const[x,y,z]=r.prev;if(y<0||y>=H)return;
-    const b=gB(x,y,z);if(b!==AIR&&!isWater(b))return;
     const it=hotbar[sel];
     if(!it||(it.b>=STICK_I&&it.b!==TORCH&&it.b!==FURN)||(!isCreative()&&it.count<=0))return; // tools/sticks/foods aren't placeable
-    if(it.b===TORCH){placeTorch(r,it);return;}   // torches have no collision box: even your own
-                                                 // feet cell is fine, so skip the overlap check
+    if(it.b===TORCH){if(r&&r.prev)placeTorch(r,it);return;} // torches have no collision box: even your
+                                                 // own feet cell is fine, so skip the overlap check
     const p=player.pos;
-    if(x+1>p.x-.3&&x<p.x+.3&&z+1>p.z-.3&&z<p.z+.3&&y+1>p.y&&y<p.y+1.8)return;
+    let x,y,z,ok=false;
+    if(r&&r.prev){
+      ([x,y,z]=r.prev);
+      const b=gB(x,y,z);
+      ok=y>=0&&y<H&&(b===AIR||isWater(b))&&
+        !(x+1>p.x-.3&&x<p.x+.3&&z+1>p.z-.3&&z<p.z+.3&&y+1>p.y+.07&&y<p.y+1.8); // can't place inside yourself
+      // (+.07: the physics rests the feet ~0.05 BELOW the block top, so a cell whose top
+      // is exactly at foot level — the bridge cell — must count as under you, not inside)
+    }
+    if(!ok){                                     // normal placement impossible: sneak bridge assist
+      const ra=reachAround(r);
+      if(!ra)return;
+      ([x,y,z]=ra);
+    }
     if(it.b===BEDF){                                  // beds occupy 2 blocks: foot here, head one
       const fwx=-Math.sin(player.yaw),fwz=-Math.cos(player.yaw);   // block further along the facing
       const ddx=Math.abs(fwx)>Math.abs(fwz)?Math.sign(fwx):0,ddz=Math.abs(fwx)>Math.abs(fwz)?0:Math.sign(fwz);
@@ -1570,36 +1677,43 @@ function lerpAngle(a,b,t){
 const angDelta=(a,b)=>Math.atan2(Math.sin(b-a),Math.cos(b-a)); // signed shortest angle a→b
 const HEAD_TWIST=1.31;                                          // 75° — MC's max head-over-body twist
 const SWING_DUR=.28;                                            // attack/mine arm-swing length (s); vanilla is ~6 ticks
-function updateThirdPerson(eyeY,moveSpd){
+function updateThirdPerson(moveSpd){
   const show=player.view!==0;
   pbody.g.visible=show;
   if(!show)return;
-  // the rig's feet sit at group y=0 and its eyes ~1.5 up; align eyes to the player's eye height
-  pbody.g.position.set(player.pos.x,player.pos.y+(eyeY-1.5),player.pos.z);
+  // the rig's feet sit at group y=0 and its eyes ~1.5 up; align eyes to the STANDING
+  // eye height (1.62). Sneaking must NOT drop the whole group (feet would sink into
+  // the ground) — vanilla keeps the feet planted and lowers the individual parts.
+  pbody.g.position.set(player.pos.x,player.pos.y+.12,player.pos.z);
   pbody.g.rotation.y=Math.PI+player.bodyYaw;         // torso faces the movement direction (rig face is +Z)
-  // crouch/sneak pose — a faithful port of vanilla HumanoidModel.setupAnim:
-  // ONLY the chest hinges forward at the waist (body.xRot≈0.5). The legs stay
-  // vertical (shifted back a touch), the head stays look-tracked riding the
-  // leaned neck, and the arms drop & angle forward (arm.xRot+=0.4). This is the
-  // hunch in vanilla — NOT tipping the whole body over.
+  // crouch/sneak pose — vanilla HumanoidModel.setupAnim numbers (16px = 1 block):
+  // the body hinges 0.5rad at the NECK, which itself drops 3.2px — so the chest
+  // leans forward, the neck lands at (y 1.30, z 0) and the hips swing BACK ~0.36
+  // (the butt sticks out). Head drops 4.2px riding the neck at z=0 (no extra nod),
+  // legs tuck 3.9px back under the swung-back hips, arms drop 3.2px and angle
+  // toward the hips. Our torso group pivots at the waist instead of the neck, so
+  // translate it down+back such that after the lean the neck lands on vanilla's
+  // spot: waist→(0.642,-0.36), neck = 0.642+0.75cos(.5) = 1.30, -0.36+0.75sin(.5) ≈ 0.
   const cr=player.crouchAmt;
-  pbody.upper.rotation.x=cr*.5;                        // chest leans forward from the hips
-  // head: lower it and push it forward so it sits on the hunched neck, with a
-  // slight downward nod; yaw/pitch still track where you look
-  pbody.head.position.set(0,1.5-cr*.16,cr*.34);
+  pbody.upper.rotation.x=cr*.5;                        // chest leans forward
+  pbody.upper.position.set(0,.75-cr*.108,-cr*.36);     // hips swing back, neck drops to 1.30
+  // head: sits on the lowered neck at z=0 (vanilla head.y 0→4.2px = 1.5→1.2375);
+  // yaw/pitch still track where you look
+  pbody.head.position.set(0,1.5-cr*.26,0);
   pbody.head.rotation.y=Math.max(-HEAD_TWIST,Math.min(HEAD_TWIST,angDelta(player.bodyYaw,player.yaw)));
-  pbody.head.rotation.x=-player.pitch+cr*.2;
-  // legs shift slightly back (vanilla leg.z offset) so the lean stays balanced
-  pbody.legs[0].position.z=pbody.legs[1].position.z=-cr*.08;
+  pbody.head.rotation.x=-player.pitch;
+  // legs shift back under the hips (vanilla leg.z 0.1→4.0px ≈ 0.24)
+  pbody.legs[0].position.z=pbody.legs[1].position.z=-cr*.24;
   // walk cycle: limbs list holds both legs + both arms, arms signed opposite the legs
   const sw=Math.sin(player.walkPhase)*.8*Math.min(1,moveSpd/3);
   for(const[l,s2]of pbody.limbs)l.rotation.x=sw*s2;
-  const[la,ra]=pbody.arms;                             // sneaking: arms swing down-forward + tuck in
+  const[la,ra]=pbody.arms;                             // sneaking: arms angle back toward the hips (vanilla arm.xRot+=0.4)
   la.rotation.x+=cr*.4; ra.rotation.x+=cr*.4;
-  ra.rotation.z=cr*.1; la.rotation.z=-cr*.1;
-  // the shoulders ride the leaned chest, so drop+push the arms forward to match
-  // (their pivot is the shoulder corner at y=1.5; vanilla offsets body parts ~0.2/0.2)
-  la.position.set(-.25,1.5-cr*.1,cr*.2); ra.position.set(.25,1.5-cr*.1,cr*.2); // shoulder-corner pivot (inner-top, flush with torso)
+  ra.rotation.z=cr*.1; la.rotation.z=-cr*.1;           // slight outward splay so the hands clear the thighs
+  // shoulders drop with the leaned chest (vanilla arm.y 2→5.2px = drop 0.2) but stay
+  // at z=0 — the torso's top corner ends up at (1.30, 0) after the lean, and the
+  // shoulder-corner pivot welds to it
+  la.position.set(-.25,1.5-cr*.2,0); ra.position.set(.25,1.5-cr*.2,0); // shoulder-corner pivot (inner-top, flush with torso)
   // idle "breathing" bob — a faithful port of vanilla HumanoidModel.setupAnim:
   // the arms sway gently outward (zRot, cos) and rock forward/back (xRot, sin) out
   // of phase, so even standing still or sneaking the character looks alive. Added
@@ -1658,7 +1772,7 @@ function updatePlayer(dt){
   player.crouching=!ui&&!!keys.KeyC;                   // hold C to sneak, like vanilla (no toggle = no shake)
   const crouch=player.crouching&&player.onGround&&!inWater;
   player.crouchAmt+=((crouch?1:0)-player.crouchAmt)*Math.min(1,dt*12); // ease the sneak crouch
-  const sprint=(keys.ShiftLeft||keys.ShiftRight||sprintDT)&&f>0&&!crouch; // Shift OR double-tap W; can't sprint while sneaking (sprint-swimming allowed, like vanilla 1.13+)
+  const sprint=(keys.ShiftLeft||keys.ShiftRight||sprintDT)&&f>0&&!crouch&&(isCreative()||player.food>6); // Shift OR double-tap W; no sprint at hunger<=6, like vanilla; can't sneak-sprint (sprint-swim ok, like 1.13+)
   const sp=(inWater?(sprint?4.5:2.2):crouch?1.5:(sprint?7.2:4.6))*(f||s?1:0); // water: vanilla surface-swim 2.2, sprint-swim capped below land run (no prone mode); sneak walks slowly, like vanilla
   camera.fov+=((sprint?85:75)-camera.fov)*Math.min(1,dt*8);
   camera.updateProjectionMatrix();
@@ -1708,7 +1822,8 @@ function updatePlayer(dt){
     }
   }else{
     player.vel.y-=24*dt;
-    if(keys.Space&&!ui&&player.onGround)player.vel.y=8;}
+    if(keys.Space&&!ui&&player.onGround){player.vel.y=8;
+      if(!isCreative())player.exhaustion+=sprint?.2:.05;}}    // vanilla jump exhaustion: 0.05, sprint-jump 0.2
   player.pos.y+=player.vel.y*dt;player.onGround=false;
   if(collidesP()){
     if(player.vel.y<0){player.onGround=true;
@@ -1737,33 +1852,48 @@ function updatePlayer(dt){
         :(gb===PLANK||gb===LOG)?'stepWood':'stepGrass',.35);}}
   else player.stepT=0;
   if(player.pos.y<-12){player.pos.copy(spawn);player.vel.set(0,0,0);}
-  if(!isCreative()){                                 // ---- hunger ----
-    // drains faster the harder you work: sprinting > walking > standing still
-    player.food=Math.max(0,player.food-dt*(sprint?.18:sp>0?.05:.018));
-    // periodic ripple: replay the bob animation every few seconds
+  if(!isCreative()){                                 // ---- hunger: the exact vanilla exhaustion model ----
+    // Actions add EXHAUSTION (0..4). Walking & standing are FREE — only sprinting,
+    // swimming, jumping, attacking and mining cost it (those add at their own sites).
+    // Every 4.0 exhaustion removes 1 SATURATION (a hidden 0..20 buffer), and only
+    // once saturation hits 0 does it start eating the visible food bar. This is why
+    // vanilla hunger lasts so long — you were draining food every frame before.
+    const moved=Math.hypot(player.vel.x,player.vel.z)*dt;        // metres travelled this frame
+    if(inWater)player.exhaustion+=moved*.01;                     // swimming: 0.01/m
+    else if(sprint)player.exhaustion+=moved*.1;                  // sprinting: 0.1/m (walking = 0, like vanilla)
+    while(player.exhaustion>=4){                                 // vanilla: drain at the 4.0 threshold
+      player.exhaustion-=4;
+      if(player.saturation>0)player.saturation=Math.max(0,player.saturation-1);
+      else player.food=Math.max(0,player.food-1);}
+    player.saturation=Math.min(player.saturation,player.food);   // saturation can never exceed food
+    // health regen / starvation on vanilla's 4-second food tick
+    player.foodTick-=dt;
+    if(player.foodTick<=0){player.foodTick=4;
+      if(player.food>=18&&player.hp<20){                         // well-fed: regen 1 HP, but healing costs food
+        player.hp=Math.min(20,player.hp+1);player.exhaustion+=6;}// (vanilla: regen adds 6 exhaustion -> "avoid damage")
+      else if(player.food<=0){                                   // starving: tick health down to a difficulty floor
+        const floor=world.diff==='Hard'?0:world.diff==='Easy'?10:1;
+        if(player.hp>floor){player.hp-=1;
+          if(player.hp<=0){
+            if(world.mode==='Hardcore'){hardcoreDeath();}
+            else{player.hp=20;player.food=20;player.saturation=5;player.exhaustion=0;randomRespawn();}}}}}
+    // fast saturation-boost heal at FULL food (Java): 1 HP per second while saturated
+    if(player.food>=20&&player.saturation>0&&player.hp<20){
+      player.satHeal=(player.satHeal||0)+dt;
+      if(player.satHeal>=1){player.satHeal=0;player.hp=Math.min(20,player.hp+1);player.exhaustion+=6;}}
+    // periodic ripple: replay the hunger-bar bob animation every few seconds
     player.foodT-=dt;
     if(player.foodT<=0){player.foodT=5;
       const hb=document.getElementById('hunger');
       hb.classList.remove('wave');void hb.offsetWidth;hb.classList.add('wave');}
-    if(player.food>=18){                             // well-fed: passively regenerate health
-      player.hp=Math.min(20,player.hp+dt*.6);
-    }else if(player.food<=0){                         // starving: tick health down to a difficulty floor
-      const floor=world.diff==='Hard'?0:world.diff==='Easy'?10:1;
-      player.starveT-=dt;
-      if(player.starveT<=0){player.starveT=4;
-        if(player.hp>floor){player.hp-=1;
-          if(player.hp<=0){
-            if(world.mode==='Hardcore'){hardcoreDeath();}
-            else{player.hp=20;player.food=20;randomRespawn();}}}}
-    }else player.starveT=0;
   }
   // limb swing phase tracks actual horizontal speed (for the 3rd-person body)
   const moveSpd=Math.hypot(player.vel.x,player.vel.z);
   player.walkPhase+=dt*moveSpd*2.2;
   player.armAge+=dt*20;                                // advance in "ticks" (20/s) like vanilla ageInTicks
   if(player.swingT>0)player.swingT=Math.max(0,player.swingT-dt); // decay the attack-swing timer
-  const eyeY=1.62-player.crouchAmt*.35;
-  updateThirdPerson(eyeY,moveSpd);
+  const eyeY=1.62-player.crouchAmt*.35;  // camera eye only — the 3rd-person model keeps its feet planted
+  updateThirdPerson(moveSpd);
   if(player.view===0){                               // first person: camera at the eyes
     camera.position.copy(player.pos).add(new THREE.Vector3(0,eyeY,0));
     camera.rotation.set(player.pitch,player.yaw,0);
@@ -1857,9 +1987,12 @@ function humanoid(skin,shirt,pants,opts={}){
   // width and depth so the shirt hides it on the front/back/sides, like vanilla
   upper.add(part(.44,.12,.21,skin,0,1.45-.75,0));
   g.add(upper);
-  // legs are the SAME depth as the torso (.25) and together span its full width
-  // (two .25-wide legs at ±.125 meet at the centre), so the hips sit flush with
-  // the body instead of looking detached/recessed
+  // legs are the SAME depth as the torso (.25) and together span its full width,
+  // so the hips sit flush with the body instead of looking detached/recessed —
+  // BUT inset 0.006 inboard (vanilla insets 0.1px too: leg pivots ±1.9px, torso
+  // ±2px) so the leg outer faces never share a plane with the torso sides; with
+  // the sneak lean the torso bottom overlaps the leg tops on screen, and exactly
+  // coplanar faces there z-fight (flickering shirt/pants patches at the hips)
   // arms are full vanilla size (.25 wide × .75 tall, == torso height) and pivot at
   // the INNER-top corner — the exact shoulder joint, which COINCIDES with the
   // torso's top-outer corner (inner edge flush at ±.25, top flush at y=1.5). So the
@@ -1868,8 +2001,8 @@ function humanoid(skin,shirt,pants,opts={}){
   // like real Minecraft — never disjointing at the shoulder
   const la=part(.25,.75,.25,opts.arm||skin,-.25,1.5,0,true),
         ra=part(.25,.75,.25,opts.arm||skin,.25,1.5,0,true),
-        ll=part(.25,.75,.25,pants,-.125,.75,0,true),
-        rl=part(.25,.75,.25,pants,.125,.75,0,true);
+        ll=part(.25,.75,.25,pants,-.119,.75,0,true),
+        rl=part(.25,.75,.25,pants,.119,.75,0,true);
   la.geometry.translate(-.125,0,0); ra.geometry.translate(.125,0,0); // box hangs outboard of its shoulder-corner pivot
   if(opts.zombie){la.rotation.x=ra.rotation.x=-Math.PI/2;}
   g.add(la,ra,ll,rl);
@@ -2015,12 +2148,12 @@ class Mob{
     S('hit',.5,SFX.hit);                     // punch impact, always
     const dying=this.hp<=0;                  // one voice per hit: hurt OR death, never both
     const pr=.9+Math.random()*.2;            // vanilla random pitch on every voice
-    if(this.type==='villager')play(dying?'villagerDeath':'villagerHit',.6,pr);
-    else if(this.type==='zombie')play(dying?'zombieDeath':'zombieHurt',.6,pr);
-    else if(this.type==='pig')play(dying?'pigDeath':'pig',.6,pr);
-    else if(this.type==='sheep')play('sheep',.6,pr); // pack has no sheep death; single baa
-    else if(this.type==='chicken')play(dying?'chicken':'chickenHurt',.6,pr); // cluck on death, squawk on hurt
-    else if(this.type==='spider')play(dying?'spiderDeath':'spider',.6,pr);   // hiss on hurt, like vanilla
+    if(this.type==='villager')playAt(dying?'villagerDeath':'villagerHit',.8,pr,this.pos);
+    else if(this.type==='zombie')playAt(dying?'zombieDeath':'zombieHurt',.8,pr,this.pos);
+    else if(this.type==='pig')playAt(dying?'pigDeath':'pig',.8,pr,this.pos);
+    else if(this.type==='sheep')playAt('sheep',.8,pr,this.pos); // pack has no sheep death; single baa
+    else if(this.type==='chicken')playAt(dying?'chicken':'chickenHurt',.8,pr,this.pos); // cluck on death, squawk on hurt
+    else if(this.type==='spider')playAt(dying?'spiderDeath':'spider',.8,pr,this.pos);   // hiss on hurt, like vanilla
     // Minecraft knockback: velocity burst away from the attacker + a small hop,
     // sliding back ~1 block while still facing the player (no teleport)
     const away=Math.atan2(this.pos.x-player.pos.x,this.pos.z-player.pos.z);
@@ -2293,7 +2426,8 @@ function attack(){
   const now=performance.now();
   if(now>=nextAttack){nextAttack=now+400;
     const it=hotbar[sel];
-    m.hit(it&&it.b===ISWORD_I?12:it&&it.b===SSWORD_I?10:it&&it.b===WSWORD_I?8:4);} // vanilla sword damage 4/5/6 (x2 scale)
+    m.hit(it&&it.b===ISWORD_I?12:it&&it.b===SSWORD_I?10:it&&it.b===WSWORD_I?8:4); // vanilla sword damage 4/5/6 (x2 scale)
+    if(!isCreative())player.exhaustion+=.1;}     // vanilla attack exhaustion: 0.1
   return true;}                                // on cooldown: swing whiffs, no block dig behind
 
 // ================= MINING (hold left click, MC-style) =================
@@ -2379,6 +2513,7 @@ function updateEating(dt){
                aimOrigin.z+aimDir.z*.45+(Math.random()-.5)*.15,null,col,true);}
   if(eatT>=1.61){
     player.food=Math.min(20,player.food+FOOD_PTS[it.b]); // vanilla hunger points
+    player.saturation=Math.min(player.food,player.saturation+FOOD_SAT[it.b]); // + saturation, capped at food
     play('burp',.7,1);
     if(!isCreative()&&--it.count<=0)hotbar[sel]=null;
     drawHotbar();
@@ -2407,6 +2542,7 @@ function updateMining(dt){
   crackMat.map=crackTex[Math.min(9,(mining.t/mining.need*10)|0)];
   if(mining.t>=mining.need){
     if(b===FURN||b===FURNL)spillFurnace(x,y,z);  // a broken furnace hands back whatever was inside
+    if(!isCreative())player.exhaustion+=.005;    // vanilla: breaking a block adds 0.005 exhaustion
     if(isDoor(b))breakDoor(x,y,z);else if(isBed(b))breakBed(x,y,z);else setBlock(x,y,z,AIR);
     flowWater(x,y,z);flush();
     if(!play(m.dig,.9,.8))SFX.dig(); // break sound: vanilla plays it at fixed 0.8 pitch, full volume
@@ -3238,7 +3374,7 @@ function seedFrom(s){                          // numeric seeds pass through, te
   let h=0;for(let i=0;i<s.length;i++)h=(Math.imul(h,31)+s.charCodeAt(i))|0;
   return h;}
 $('bSingle').onclick=()=>{selIdx=worlds.length?0:-1;renderWorlds();showScreen(selWorldEl);};
-$('bMulti').onclick=()=>$('mMsg').textContent='Multiplayer is not available in this single-file demo.';
+$('bMulti').onclick=()=>$('mMsg').textContent='Multiplayer mode releasing soon.';
 $('bQuit').onclick=()=>{window.open('','_self');window.close();setTimeout(()=>{$('mMsg').textContent='Your browser blocked closing the tab. Please close it manually.';},150);};
 // ---- in-game Ctrl+W: "Are you sure you want to Quit?" confirmation ----
 const quitEl=$('quitConfirm');
@@ -3336,7 +3472,7 @@ function snapshotWorld(){
     pos:[player.pos.x,player.pos.y,player.pos.z],
     sp:[spawn.x,spawn.y,spawn.z],
     yaw:player.yaw,pitch:player.pitch,view:player.view,
-    hp:player.hp,food:player.food,sel,
+    hp:player.hp,food:player.food,sat:player.saturation,sel,
     hotbar:packInv(hotbar),inv:packInv(invSlots),
     dayFrac,edits:worldEdits,furn:furnaces}; // furnace contents/progress ride along with the save
   curWorld.lastPlayed=Date.now();
@@ -3370,7 +3506,7 @@ function playWorld(w){
       player.pos.set(...s.pos);player.vel.set(0,0,0);
       if(s.sp)spawn.set(...s.sp);
       player.yaw=s.yaw;player.pitch=s.pitch;player.view=s.view||0;
-      player.hp=s.hp;player.food=s.food;
+      player.hp=s.hp;player.food=s.food;player.saturation=s.sat!=null?s.sat:5;player.exhaustion=0;
       dayFrac=s.dayFrac;
       hotbar.length=0;s.hotbar.forEach(v=>hotbar.push(v?{b:v[0],count:v[1]}:null));
       s.inv.forEach((v,i)=>invSlots[i]=v?{b:v[0],count:v[1]}:null);
